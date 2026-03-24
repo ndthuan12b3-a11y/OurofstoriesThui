@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { GoogleGenAI } from "@google/genai";
 import { supabase } from '../lib/supabase';
 import { formatDate } from '../lib/utils';
 import { AppConfig } from '../types';
@@ -17,6 +18,26 @@ interface Photo {
   created_at: string;
 }
 
+// Photo Item Component for memoization
+const PhotoItem = React.memo(({ photo, onClick }: { photo: Photo; onClick: (p: Photo) => void }) => (
+  <motion.div
+    layoutId={photo.id}
+    onClick={() => onClick(photo)}
+    className="group relative aspect-square bg-white rounded-2xl overflow-hidden soft-shadow cursor-pointer hover:-translate-y-1 transition-transform"
+  >
+    <img
+      src={photo.photo_url}
+      alt={photo.description}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      className="w-full h-full object-cover"
+    />
+    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+      <p className="text-white text-xs font-bold truncate">{photo.description}</p>
+    </div>
+  </motion.div>
+));
+
 export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [filteredPhotos, setFilteredPhotos] = useState<Photo[]>([]);
@@ -29,6 +50,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadForm, setUploadForm] = useState({ description: '', tags: '', photoFile: null as File | null });
   const [uploading, setUploading] = useState(false);
+  const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
 
   const PHOTOS_PER_PAGE = 20;
 
@@ -88,6 +110,54 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
   );
 
   const HAS_VIP_ACCESS = () => userRole === 'vip' || userRole === 'admin';
+
+  const generateAICaption = async () => {
+    if (!uploadForm.photoFile) {
+      showNotification("Vui lòng chọn ảnh trước!", true);
+      return;
+    }
+
+    setIsGeneratingCaption(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: (process.env as any).GEMINI_API_KEY });
+      
+      // Convert file to base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          resolve(base64);
+        };
+        reader.readAsDataURL(uploadForm.photoFile!);
+      });
+
+      const base64Data = await base64Promise;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [
+          {
+            inlineData: {
+              data: base64Data,
+              mimeType: uploadForm.photoFile.type
+            }
+          },
+          {
+            text: "Hãy viết một câu caption (chú thích) thật hay, lãng mạn hoặc hài hước cho bức ảnh này của một cặp đôi. Chỉ trả về nội dung caption, không thêm bất kỳ lời dẫn nào khác. Ngôn ngữ: Tiếng Việt."
+          }
+        ],
+      });
+
+      const caption = response.text?.trim() || "";
+      setUploadForm(prev => ({ ...prev, description: caption }));
+      showNotification("Đã tạo caption bằng AI!");
+    } catch (error) {
+      console.error("AI Caption Error:", error);
+      showNotification("Lỗi khi tạo caption bằng AI!", true);
+    } finally {
+      setIsGeneratingCaption(false);
+    }
+  };
 
   const handleFileUpload = async (file: File) => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -202,6 +272,8 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
               <img
                 src={randomPhoto.photo_url}
                 alt="Random"
+                loading="eager"
+                referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"
               />
               <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent text-white">
@@ -246,28 +318,14 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
       </div>
 
       {/* Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 min-h-[400px]">
         {loading ? (
           Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="aspect-square rounded-2xl skeleton" />
+            <div key={i} className="aspect-square rounded-2xl skeleton animate-pulse bg-gray-100" />
           ))
         ) : currentPhotos.length > 0 ? (
           currentPhotos.map(photo => (
-            <motion.div
-              key={photo.id}
-              layoutId={photo.id}
-              onClick={() => setSelectedPhoto(photo)}
-              className="group relative aspect-square bg-white rounded-2xl overflow-hidden soft-shadow cursor-pointer hover:-translate-y-1 transition-transform"
-            >
-              <img
-                src={photo.photo_url}
-                alt={photo.description}
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
-                <p className="text-white text-xs font-bold truncate">{photo.description}</p>
-              </div>
-            </motion.div>
+            <PhotoItem key={photo.id} photo={photo} onClick={setSelectedPhoto} />
           ))
         ) : (
           <div className="col-span-full text-center py-12 text-gray-400">Chưa có ảnh nào!</div>
@@ -320,6 +378,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
                   <img
                     src={selectedPhoto.photo_url}
                     alt={selectedPhoto.description}
+                    referrerPolicy="no-referrer"
                     className="max-w-full max-h-full object-contain"
                   />
                 </div>
@@ -376,7 +435,22 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
       >
         <form onSubmit={handleUploadSubmit} className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-bold text-gray-600">Mô tả ảnh</label>
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-bold text-gray-600">Mô tả ảnh</label>
+              <button
+                type="button"
+                onClick={generateAICaption}
+                disabled={isGeneratingCaption || !uploadForm.photoFile}
+                className="text-xs font-black text-primary flex items-center gap-1 hover:underline disabled:opacity-50 disabled:no-underline"
+              >
+                {isGeneratingCaption ? (
+                  <RefreshCw className="animate-spin" size={12} />
+                ) : (
+                  <Sparkles size={12} />
+                )}
+                AI Gợi ý Caption
+              </button>
+            </div>
             <textarea
               value={uploadForm.description}
               onChange={e => setUploadForm({ ...uploadForm, description: e.target.value })}
@@ -441,7 +515,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
   );
 };
 
-import { Settings, X, Tag, Calendar, Info, Lock, Plus, Camera, Upload, Image as ImageIcon } from 'lucide-react';
+import { Settings, X, Tag, Calendar, Info, Lock, Plus, Camera, Upload, Image as ImageIcon, Sparkles, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Modal } from './Modal';
 import { showNotification } from '../lib/notifications';

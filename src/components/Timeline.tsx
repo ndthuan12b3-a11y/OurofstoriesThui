@@ -6,6 +6,8 @@ import { AppConfig } from '../types';
 import { Heart, Lock, Sparkles, Calendar, Camera, MapPin, X, Info, Plus, Upload, Image as ImageIcon } from 'lucide-react';
 import { Modal } from './Modal';
 import { showNotification } from '../lib/notifications';
+import { JourneyStoryteller } from './JourneyStoryteller';
+import { LoveMoodTracker } from './LoveMoodTracker';
 
 interface TimelineProps {
   config: AppConfig;
@@ -20,6 +22,58 @@ interface Event {
   photo_url: string;
   created_at: string;
 }
+
+// Event Item Component for memoization
+const EventItem = React.memo(({ event, index, onClick }: { event: Event; index: number; onClick: (e: Event) => void }) => (
+  <motion.div
+    key={event.id}
+    initial={{ opacity: 0, x: -20 }}
+    whileInView={{ opacity: 1, x: 0 }}
+    viewport={{ once: true, margin: "-50px" }}
+    transition={{ delay: Math.min(index * 0.05, 0.3) }}
+    className="relative ml-16 group"
+  >
+    {/* Timeline Dot */}
+    <div className="absolute -left-12 top-6 w-4 h-4 bg-white border-4 border-rose-300 rounded-full shadow-md z-10 group-hover:scale-125 transition-transform" />
+    
+    {/* Date Badge */}
+    <div className="absolute -left-[4.5rem] top-12 text-[10px] font-black text-rose-300 uppercase tracking-tighter rotate-90 origin-left whitespace-nowrap">
+      {formatDate(event.date)}
+    </div>
+
+    {/* Compact Card */}
+    <div 
+      className="bg-white rounded-3xl p-4 shadow-md hover:shadow-xl transition-all duration-300 border border-gray-50 flex flex-col sm:flex-row gap-4 group-hover:-translate-y-1 cursor-pointer"
+      onClick={() => onClick(event)}
+    >
+      {/* Small Image */}
+      <div className="w-full sm:w-32 h-32 rounded-2xl overflow-hidden shrink-0 shadow-inner bg-gray-50">
+        <img
+          src={event.photo_url}
+          alt={event.title}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+        />
+      </div>
+
+      {/* Content */}
+      <div className="flex-grow flex flex-col justify-center">
+        <div className="flex items-center gap-2 mb-1">
+          <Sparkles size={14} className="text-yellow-400" />
+          <h3 className="text-lg font-black text-gray-800 leading-tight">{event.title}</h3>
+        </div>
+        <p className="text-gray-500 text-sm leading-relaxed line-clamp-2 mb-2">
+          {event.description}
+        </p>
+        <div className="flex items-center gap-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+          <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(event.date)}</span>
+          <span className="flex items-center gap-1 text-rose-300"><Heart size={10} fill="currentColor" /> Kỷ niệm</span>
+        </div>
+      </div>
+    </div>
+  </motion.div>
+));
 
 export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
   const [events, setEvents] = useState<Event[]>([]);
@@ -188,6 +242,13 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
         </div>
       </div>
 
+      {HAS_VIEW_ACCESS() && (
+        <div className="space-y-8 mb-12">
+          <LoveMoodTracker userRole={userRole} />
+          <JourneyStoryteller config={config} userRole={userRole} />
+        </div>
+      )}
+
       {/* Cute Day Counter Widget */}
       <motion.div 
         initial={{ y: 20, opacity: 0 }}
@@ -215,64 +276,18 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
       </motion.div>
 
       {/* Compact Timeline */}
-      <div className="relative space-y-8">
+      <div className="relative space-y-8 min-h-[300px]">
         {/* Decorative Line */}
         <div className="absolute left-6 top-0 bottom-0 w-1 bg-gradient-to-b from-rose-100 via-blue-100 to-transparent rounded-full" />
 
         <AnimatePresence mode="popLayout">
           {loading ? (
             Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="ml-16 h-32 rounded-3xl skeleton" />
+              <div key={i} className="ml-16 h-32 rounded-3xl skeleton animate-pulse bg-gray-100" />
             ))
           ) : events.length > 0 ? (
             events.map((event, index) => (
-              <motion.div
-                key={event.id}
-                initial={{ opacity: 0, x: -20 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.1 }}
-                className="relative ml-16 group"
-              >
-                {/* Timeline Dot */}
-                <div className="absolute -left-12 top-6 w-4 h-4 bg-white border-4 border-rose-300 rounded-full shadow-md z-10 group-hover:scale-125 transition-transform" />
-                
-                {/* Date Badge */}
-                <div className="absolute -left-[4.5rem] top-12 text-[10px] font-black text-rose-300 uppercase tracking-tighter rotate-90 origin-left whitespace-nowrap">
-                  {formatDate(event.date)}
-                </div>
-
-                {/* Compact Card */}
-                <div 
-                  className="bg-white rounded-3xl p-4 shadow-md hover:shadow-xl transition-all duration-300 border border-gray-50 flex flex-col sm:flex-row gap-4 group-hover:-translate-y-1 cursor-pointer"
-                  onClick={() => setSelectedEvent(event)}
-                >
-                  {/* Small Image */}
-                  <div className="w-full sm:w-32 h-32 rounded-2xl overflow-hidden shrink-0 shadow-inner bg-gray-50">
-                    <img
-                      src={event.photo_url}
-                      alt={event.title}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-grow flex flex-col justify-center">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Sparkles size={14} className="text-yellow-400" />
-                      <h3 className="text-lg font-black text-gray-800 leading-tight">{event.title}</h3>
-                    </div>
-                    <p className="text-gray-500 text-sm leading-relaxed line-clamp-2 mb-2">
-                      {event.description}
-                    </p>
-                    <div className="flex items-center gap-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                      <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(event.date)}</span>
-                      <span className="flex items-center gap-1 text-rose-300"><Heart size={10} fill="currentColor" /> Kỷ niệm</span>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
+              <EventItem key={event.id} event={event} index={index} onClick={setSelectedEvent} />
             ))
           ) : (
             <div className="text-center py-20 bg-white rounded-[2rem] shadow-inner border-2 border-dashed border-rose-50">

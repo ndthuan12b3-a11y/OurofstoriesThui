@@ -197,20 +197,24 @@ export default function App() {
       
       {/* Background Layer */}
       {hasBackgroundAccess && (
-        <div className="fixed inset-0 -z-20 overflow-hidden">
+        <div className="fixed inset-0 -z-20 overflow-hidden pointer-events-none select-none">
           {config.background_video_url ? (
             <video
               autoPlay
               loop
               muted
               playsInline
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover opacity-100 transition-opacity duration-1000"
               src={config.background_video_url}
+              style={{ willChange: 'transform' }}
             />
           ) : config.background_image_url ? (
             <div 
-              className="w-full h-full bg-cover bg-center bg-fixed"
-              style={{ backgroundImage: `url(${config.background_image_url})` }}
+              className="w-full h-full bg-cover bg-center bg-fixed transition-opacity duration-1000"
+              style={{ 
+                backgroundImage: `url(${config.background_image_url})`,
+                willChange: 'transform'
+              }}
             />
           ) : null}
         </div>
