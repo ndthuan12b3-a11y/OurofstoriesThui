@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { GoogleGenAI } from "@google/genai";
 import { supabase } from '../lib/supabase';
 import { formatDate, calculateDays, cn } from '../lib/utils';
 import { AppConfig } from '../types';
-import { Heart, Lock, Sparkles, Calendar, Camera, MapPin, X, Info, Plus, Upload, Image as ImageIcon } from 'lucide-react';
+import { Heart, Lock, Sparkles, Calendar, Camera, MapPin, X, Info, Plus, Upload, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { Modal } from './Modal';
 import { showNotification } from '../lib/notifications';
 import { JourneyStoryteller } from './JourneyStoryteller';
@@ -82,6 +83,67 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadForm, setUploadForm] = useState({ title: '', date: '', description: '', photoFile: null as File | null });
   const [uploading, setUploading] = useState(false);
+  const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
+
+  const generateAICaption = async () => {
+    if (!uploadForm.photoFile) {
+      showNotification("Vui lòng chọn ảnh trước!", true);
+      return;
+    }
+
+    setIsGeneratingCaption(true);
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+        showNotification("Vui lòng thiết lập GEMINI_API_KEY!", true);
+        setIsGeneratingCaption(false);
+        return;
+      }
+      const ai = new GoogleGenAI({ apiKey });
+      
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          resolve(base64);
+        };
+        reader.readAsDataURL(uploadForm.photoFile!);
+      });
+
+      const base64Data = await base64Promise;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [
+          {
+            inlineData: {
+              data: base64Data,
+              mimeType: uploadForm.photoFile.type
+            }
+          },
+          {
+            text: "Hãy viết một câu mô tả (title) ngắn gọn và một đoạn cảm xúc (description) thật hay, lãng mạn cho bức ảnh này của một cặp đôi. Định dạng trả về: [Title]: ... [Description]: ... Ngôn ngữ: Tiếng Việt."
+          }
+        ],
+      });
+
+      const text = response.text?.trim() || "";
+      const titleMatch = text.match(/\[Title\]:\s*(.*)/i);
+      const descMatch = text.match(/\[Description\]:\s*([\s\S]*)/i);
+      
+      setUploadForm(prev => ({ 
+        ...prev, 
+        title: titleMatch ? titleMatch[1].trim() : prev.title,
+        description: descMatch ? descMatch[1].trim() : prev.description
+      }));
+      showNotification("Đã tạo mô tả và cảm xúc bằng AI!");
+    } catch (error) {
+      console.error("AI Caption Error:", error);
+      showNotification("Lỗi khi tạo mô tả bằng AI!", true);
+    } finally {
+      setIsGeneratingCaption(false);
+    }
+  };
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -374,7 +436,22 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
       >
         <form onSubmit={handleUploadSubmit} className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-bold text-gray-600">Tiêu đề kỷ niệm</label>
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-bold text-gray-600">Tiêu đề kỷ niệm</label>
+              <button
+                type="button"
+                onClick={generateAICaption}
+                disabled={isGeneratingCaption || !uploadForm.photoFile}
+                className="text-xs font-black text-primary flex items-center gap-1 hover:underline disabled:opacity-50 disabled:no-underline"
+              >
+                {isGeneratingCaption ? (
+                  <RefreshCw className="animate-spin" size={12} />
+                ) : (
+                  <Sparkles size={12} />
+                )}
+                AI Gợi ý
+              </button>
+            </div>
             <input
               type="text"
               value={uploadForm.title}
