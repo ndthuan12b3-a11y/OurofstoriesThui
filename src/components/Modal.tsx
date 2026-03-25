@@ -28,7 +28,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             className={cn(
-              "relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden",
+              "relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden m-auto",
               className
             )}
           >

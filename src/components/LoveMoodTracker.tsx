@@ -41,7 +41,13 @@ export const LoveMoodTracker: React.FC<LoveMoodTrackerProps> = ({ userRole }) =>
         return;
       }
 
-      const ai = new GoogleGenAI({ apiKey: (process.env as any).GEMINI_API_KEY });
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+        console.warn("GEMINI_API_KEY not configured");
+        setLoading(false);
+        return;
+      }
+      const ai = new GoogleGenAI({ apiKey });
       
       const eventsText = events.map(e => `${e.date}: ${e.title} - ${e.description}`).join('\n');
       

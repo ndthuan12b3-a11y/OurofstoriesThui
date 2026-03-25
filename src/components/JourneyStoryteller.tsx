@@ -46,7 +46,13 @@ export const JourneyStoryteller: React.FC<JourneyStorytellerProps> = ({ config, 
         return;
       }
 
-      const ai = new GoogleGenAI({ apiKey: (process.env as any).GEMINI_API_KEY });
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+        showNotification("Vui lòng thiết lập GEMINI_API_KEY trong phần Secrets!", true);
+        setLoading(false);
+        return;
+      }
+      const ai = new GoogleGenAI({ apiKey });
       
       const eventsSummary = currentEvents.map(e => `- Ngày ${formatDate(e.date)}: ${e.title} (${e.description})`).join('\n');
       

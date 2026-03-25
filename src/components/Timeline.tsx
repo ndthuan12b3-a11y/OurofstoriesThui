@@ -89,7 +89,8 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
       const { data } = await supabase
         .from('events')
         .select('*')
-        .order('date', { ascending: false });
+        .order('date', { ascending: false })
+        .limit(10);
       if (data) setEvents(data);
       setLoading(false);
     };

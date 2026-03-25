@@ -29,7 +29,7 @@ const PhotoItem = React.memo(({ photo, onClick }: { photo: Photo; onClick: (p: P
       src={photo.photo_url}
       alt={photo.description}
       loading="lazy"
-      referrerPolicy="no-referrer"
+      referrerPolicy="strict-origin-when-cross-origin"
       className="w-full h-full object-cover"
     />
     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
@@ -43,6 +43,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
   const [filteredPhotos, setFilteredPhotos] = useState<Photo[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [activeTag, setActiveTag] = useState('all');
+  const [showTags, setShowTags] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [randomPhoto, setRandomPhoto] = useState<Photo | null>(null);
@@ -119,7 +120,13 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
 
     setIsGeneratingCaption(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: (process.env as any).GEMINI_API_KEY });
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+        showNotification("Vui lòng thiết lập GEMINI_API_KEY trong phần Secrets!", true);
+        setIsGeneratingCaption(false);
+        return;
+      }
+      const ai = new GoogleGenAI({ apiKey });
       
       // Convert file to base64
       const reader = new FileReader();
@@ -289,32 +296,55 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap justify-center gap-2 mb-8">
+      <div className="flex flex-col items-center gap-4 mb-8">
         <button
-          onClick={() => setActiveTag('all')}
-          className={cn(
-            "px-4 py-2 rounded-xl text-sm font-bold transition-all",
-            activeTag === 'all' 
-              ? "bg-primary text-white soft-shadow" 
-              : "bg-white text-gray-500 hover:bg-gray-50"
-          )}
+          onClick={() => setShowTags(!showTags)}
+          className="px-6 py-2 rounded-full text-sm font-bold bg-white border border-gray-200 text-gray-700 hover:border-primary/50 transition-all flex items-center gap-2"
         >
-          Tất cả
+          {showTags ? 'Ẩn bộ lọc' : 'Lọc theo thẻ'}
+          <motion.div animate={{ rotate: showTags ? 180 : 0 }}>
+            <ChevronDown size={16} />
+          </motion.div>
         </button>
-        {tags.map(tag => (
-          <button
-            key={tag}
-            onClick={() => setActiveTag(tag)}
-            className={cn(
-              "px-4 py-2 rounded-xl text-sm font-bold transition-all",
-              activeTag === tag 
-                ? "bg-primary text-white soft-shadow" 
-                : "bg-white text-gray-500 hover:bg-gray-50"
-            )}
-          >
-            {tag}
-          </button>
-        ))}
+
+        <AnimatePresence>
+          {showTags && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="flex flex-wrap justify-center gap-2">
+                <button
+                  onClick={() => setActiveTag('all')}
+                  className={cn(
+                    "px-4 py-1.5 rounded-full text-xs font-bold transition-all border",
+                    activeTag === 'all' 
+                      ? "bg-primary text-white border-primary soft-shadow" 
+                      : "bg-white text-gray-500 border-gray-100 hover:border-primary/30 hover:text-primary"
+                  )}
+                >
+                  Tất cả
+                </button>
+                {tags.map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => setActiveTag(tag)}
+                    className={cn(
+                      "px-4 py-1.5 rounded-full text-xs font-bold transition-all border",
+                      activeTag === tag 
+                        ? "bg-primary text-white border-primary soft-shadow" 
+                        : "bg-white text-gray-500 border-gray-100 hover:border-primary/30 hover:text-primary"
+                    )}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Grid */}
@@ -399,7 +429,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {selectedPhoto.tags.map(tag => (
-                          <span key={tag} className="px-3 py-1.5 bg-white border border-gray-100 text-gray-600 text-xs font-bold rounded-xl shadow-sm hover:border-primary/30 transition-colors">
+                          <span key={tag} className="px-3 py-1 bg-white border border-gray-100 text-gray-500 text-[10px] font-bold rounded-full shadow-sm hover:border-primary/30 hover:text-primary transition-colors">
                             #{tag}
                           </span>
                         ))}
@@ -515,7 +545,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
   );
 };
 
-import { Settings, X, Tag, Calendar, Info, Lock, Plus, Camera, Upload, Image as ImageIcon, Sparkles, RefreshCw } from 'lucide-react';
+import { Settings, X, Tag, Calendar, Info, Lock, Plus, Camera, Upload, Image as ImageIcon, Sparkles, RefreshCw, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Modal } from './Modal';
 import { showNotification } from '../lib/notifications';
