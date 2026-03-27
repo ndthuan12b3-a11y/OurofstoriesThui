@@ -1,131 +1,143 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
 @import "tailwindcss";
-@plugin "@tailwindcss/typography";
 
 @theme {
-  --color-primary: #ff8fa3;
-  --color-primary-light: #fff5f7;
-  --radius-lg: 1.5rem;
-  --radius-xl: 2rem;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-med-primary: #0ea5e9;
+  --color-med-primary-light: #e0f2fe;
+  --color-med-secondary: #0369a1;
+  --color-med-accent: #f59e0b;
+  --color-med-surface: #ffffff;
+  --color-med-bg: #f0f9ff;
+  --color-med-border: #bae6fd;
 }
 
-:root {
-  --primary-color: #ff8fa3;
-  --primary-light: color-mix(in srgb, var(--primary-color), white 90%);
-  --soft-shadow: 0 4px 15px color-mix(in srgb, var(--primary-color), transparent 80%);
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-800 font-sans antialiased overflow-x-hidden;
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  }
+  h1, h2, h3, h4 {
+    @apply font-display;
+  }
 }
 
-body {
-  font-family: 'Outfit', sans-serif;
-  background-color: var(--primary-light);
-  color: #4a4a4a;
+.glass-panel {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 8px 32px rgba(3, 105, 161, 0.08);
 }
 
-.glassmorphism {
-  background: rgba(255, 255, 255, 0.8) !important;
-  backdrop-filter: blur(12px);
+.chat-bubble-ai {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: var(--radius-xl);
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.04);
 }
 
-.soft-shadow {
-  box-shadow: var(--soft-shadow);
-}
-
-.btn-primary-gradient {
-  background: linear-gradient(135deg, #ff8fa3, #ffb3c1);
+.chat-bubble-user {
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
   color: white;
-  transition: all 0.3s ease;
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 8px 24px rgba(14, 165, 233, 0.2);
 }
 
-.btn-primary-gradient:hover {
-  transform: scale(1.05);
-  box-shadow: 0 6px 20px rgba(255, 143, 163, 0.4);
+.gradient-text {
+  background: linear-gradient(90deg, #0369a1, #0ea5e9);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Professional Markdown Styling */
+.markdown-body {
+  @apply text-[14px] leading-relaxed text-slate-700;
 }
 
-.animate-fadeIn {
-  animation: fadeIn 0.5s ease-out;
-  will-change: transform, opacity;
+.markdown-body h3 {
+  @apply text-[16px] font-bold text-sky-900 mt-8 mb-4 flex items-center gap-2 border-b border-sky-100 pb-2 uppercase tracking-tight;
 }
 
-img {
-  content-visibility: auto;
+/* Enhanced Table Styling for Medical Data */
+.markdown-body table {
+  @apply w-full border-separate border-spacing-0 mb-6 rounded-2xl overflow-hidden border border-sky-100 bg-white shadow-sm;
+  table-layout: auto;
 }
 
-@keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 rgba(255, 126, 95, 0.4);
-  }
-  70% {
-    box-shadow: 0 0 0 20px rgba(255, 126, 95, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 126, 95, 0);
-  }
+.markdown-body th {
+  @apply bg-sky-50/80 p-3 text-left text-[11px] font-bold text-sky-700 uppercase tracking-wider border-b border-sky-100;
 }
 
-.pulse-ring {
-  animation: pulse-ring 2s infinite ease-in-out;
+.markdown-body td {
+  @apply p-3 border-b border-slate-100 text-[13px] align-top leading-relaxed text-slate-700;
 }
 
-.skeleton {
-  background-color: #e0e0e0;
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: loading 1.5s infinite;
+.markdown-body tr:last-child td {
+  @apply border-b-0;
 }
 
-@keyframes loading {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+.markdown-body tr:nth-child(even) td {
+  @apply bg-slate-50/30;
+}
+
+.markdown-body tr:hover td {
+  @apply bg-sky-50/30 transition-colors;
+}
+
+/* Specific Column Styling for Prescription Table */
+.markdown-body td:first-child {
+  @apply font-mono text-sky-500 w-10 text-center border-r border-slate-100 font-medium;
+}
+
+.markdown-body td:nth-child(2) {
+  @apply font-semibold text-slate-900;
+}
+
+/* Highlight important info in cells */
+.markdown-body strong {
+  @apply text-sky-800 font-bold;
+}
+
+/* Warning/Alert styling within markdown */
+.markdown-body em {
+  @apply text-rose-700 font-medium not-italic bg-rose-50 px-1.5 py-0.5 rounded-md border border-rose-100;
+}
+
+.markdown-body blockquote {
+  @apply border-l-4 border-sky-500 pl-6 py-4 my-6 bg-gradient-to-r from-sky-50/50 to-transparent rounded-r-2xl italic text-sky-900;
+}
+
+.markdown-body ul, .markdown-body ol {
+  @apply mb-4 ml-6 space-y-3;
+}
+
+.markdown-body li {
+  @apply list-none relative pl-6;
+}
+
+.markdown-body li::before {
+  content: "•";
+  @apply absolute left-0 text-sky-500 font-bold text-lg leading-none top-1;
 }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
-  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  @apply bg-transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--primary-color);
-  border-radius: 10px;
+  @apply bg-sky-200 rounded-full hover:bg-sky-300 transition-colors;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #f87171;
-}
-
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #e5e7eb;
-  border-radius: 10px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #d1d5db;
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }

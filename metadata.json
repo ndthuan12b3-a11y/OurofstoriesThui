@@ -1,5 +1,8 @@
 {
-  "name": "Hành Trình Của Chúng Ta",
-  "description": "Ứng dụng lưu giữ kỷ niệm tình yêu với bộ sưu tập ảnh, dòng thời gian và trình phát nhạc.",
-  "requestFramePermissions": []
+  "name": "Dược Sĩ Lâm Sàng AI",
+  "description": "Hệ thống phân tích đơn thuốc thông minh và tư vấn dược lâm sàng chuyên sâu dựa trên hồ sơ bệnh nhân.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
 }
