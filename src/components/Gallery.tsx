@@ -465,6 +465,48 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
       >
         <form onSubmit={handleUploadSubmit} className="space-y-4">
           <div className="space-y-2">
+            <label className="text-sm font-bold text-gray-600">Chọn ảnh</label>
+            <div className="relative group">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={e => setUploadForm({ ...uploadForm, photoFile: e.target.files?.[0] || null })}
+                className="hidden"
+                id="gallery-upload"
+              />
+              <label
+                htmlFor="gallery-upload"
+                className="flex flex-col items-center justify-center w-full p-8 border-2 border-dashed border-gray-200 rounded-2xl cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all overflow-hidden relative"
+              >
+                {uploadForm.photoFile ? (
+                  <div className="flex flex-col items-center gap-3 w-full">
+                    <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-gray-100">
+                      <img 
+                        src={URL.createObjectURL(uploadForm.photoFile)} 
+                        alt="Preview" 
+                        className="w-full h-full object-contain"
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <span className="text-white font-bold flex items-center gap-2">
+                          <RefreshCw size={16} /> Đổi ảnh khác
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-primary font-bold w-full justify-center">
+                      <ImageIcon size={16} className="shrink-0" />
+                      <span className="truncate max-w-[200px] text-sm">{uploadForm.photoFile.name}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <Camera size={32} className="text-gray-400 mb-2" />
+                    <span className="text-gray-500 font-medium">Nhấn để chọn ảnh</span>
+                  </>
+                )}
+              </label>
+            </div>
+          </div>
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-sm font-bold text-gray-600">Mô tả ảnh</label>
               <button
@@ -501,7 +543,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
           </div>
           <button
             type="submit"
-            disabled={uploading}
+            disabled={uploading || !uploadForm.photoFile}
             className="w-full py-4 btn-primary-gradient rounded-2xl font-bold soft-shadow flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {uploading ? (
@@ -512,34 +554,6 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
             {uploading ? "Đang tải lên..." : "Tải Lên Ngay"}
           </button>
         </form>
-        <div className="space-y-2 mt-4">
-          <label className="text-sm font-bold text-gray-600">Chọn ảnh</label>
-          <div className="relative group">
-            <input
-              type="file"
-              accept="image/*"
-              onChange={e => setUploadForm({ ...uploadForm, photoFile: e.target.files?.[0] || null })}
-              className="hidden"
-              id="gallery-upload"
-            />
-            <label
-              htmlFor="gallery-upload"
-              className="flex flex-col items-center justify-center w-full p-8 border-2 border-dashed border-gray-200 rounded-2xl cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all"
-            >
-              {uploadForm.photoFile ? (
-                <div className="flex items-center gap-2 text-primary font-bold">
-                  <ImageIcon size={24} />
-                  <span>{uploadForm.photoFile.name}</span>
-                </div>
-              ) : (
-                <>
-                  <Camera size={32} className="text-gray-400 mb-2" />
-                  <span className="text-gray-500 font-medium">Nhấn để chọn ảnh</span>
-                </>
-              )}
-            </label>
-          </div>
-        </div>
       </Modal>
     </div>
   );

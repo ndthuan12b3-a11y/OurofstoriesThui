@@ -1,446 +1,304 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Plus, 
-  UserCircle, 
-  Menu, 
-  Microchip, 
-  User as UserMd, 
-  Pill as Capsules, 
-  Receipt as FileInvoiceDollar, 
-  Loader2,
-  X,
-  Activity,
-  ShieldAlert,
-  Image as ImageIcon,
-  Github,
-  Info
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { analyzePrescription, generateSpeech } from './services/geminiService';
-
-// Reusable Components
-import { Button } from './components/Button';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Toaster } from 'react-hot-toast';
+import { supabase } from './lib/supabase';
+import { UserRole, AppConfig } from './types';
+import { Navigation } from './components/Navigation';
+import { Auth } from './components/Auth';
+import { Gallery } from './components/Gallery';
+import { Timeline } from './components/Timeline';
+import { Management } from './components/Management';
 import { Modal } from './components/Modal';
-import { Card } from './components/Card';
-import { PatientProfileModal, PatientProfile } from './components/PatientProfileModal';
-import { ChatInput } from './components/ChatInput';
-import { ChatMessage } from './components/ChatMessage';
+import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
+import { MemoriesNotification } from './components/MemoriesNotification';
+import { showNotification } from './lib/notifications';
+import { cn } from './lib/utils';
+import { Lock, LogOut, ShieldAlert } from 'lucide-react';
 
-interface Message {
-  id: string;
-  role: 'user' | 'ai';
-  text: string;
-  audio?: string;
-}
+const PRIMARY_CONFIG_ID = '6857068c-7cc5-45ce-8099-23f0e3264251';
+
+const DEFAULT_CONFIG: AppConfig = {
+  start_date: new Date().toISOString().split('T')[0],
+  name_male: 'Anh',
+  name_female: 'Em',
+  primary_color: '#fca5a5',
+  main_title: 'Hành Trình Của Chúng Ta',
+  main_subtitle: 'Nơi lưu giữ những khoảnh khắc ngọt ngào',
+  avatar_url: 'https://placehold.co/150x150/fcc4d6/333?text=Ảnh',
+};
+
+const SUPABASE_CONFIGURED = !!((import.meta as any).env.VITE_SUPABASE_URL && (import.meta as any).env.VITE_SUPABASE_ANON_KEY);
 
 export default function App() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [image, setImage] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const [patientProfile, setPatientProfile] = useState<PatientProfile>(() => {
-    const saved = localStorage.getItem('pharmaProfile');
-    return saved ? JSON.parse(saved) : { age: '', weight: '', renalHepatic: '', allergy: '', conditions: '', bloodType: '', currentMeds: '', pregnancyStatus: 'Không' };
-  });
+  const [session, setSession] = useState<any>(null);
+  const [userRole, setUserRole] = useState<UserRole>('none');
+  const [loadingRole, setLoadingRole] = useState(true);
+  const [activeTab, setActiveTab] = useState('home');
+  const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
+  const [isManagerAuthenticated, setIsManagerAuthenticated] = useState(false);
+  const [passcodeModalOpen, setPasscodeModalOpen] = useState(false);
+  const [passcode, setPasscode] = useState('');
 
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
-
-  // Global Paste Listener
   useEffect(() => {
-    const handleGlobalPaste = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf('image') !== -1) {
-          const file = items[i].getAsFile();
-          if (file) {
-            setImage(file);
-            setPreviewUrl(URL.createObjectURL(file));
-          }
-        }
+    if (!SUPABASE_CONFIGURED) return;
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) fetchUserRole(session.user.id);
+      else setLoadingRole(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) fetchUserRole(session.user.id);
+      else {
+        setUserRole('none');
+        setLoadingRole(false);
+        setIsManagerAuthenticated(false);
       }
-    };
+    });
 
-    window.addEventListener('paste', handleGlobalPaste);
-    return () => window.removeEventListener('paste', handleGlobalPaste);
+    fetchConfig();
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Drag and Drop Handlers
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
+  if (!SUPABASE_CONFIGURED) {
+    return (
+      <div className="min-h-screen bg-rose-50 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">Cấu hình Supabase chưa hoàn tất</h1>
+          <p className="text-gray-600 mb-6">
+            Vui lòng thiết lập các biến môi trường <strong>VITE_SUPABASE_URL</strong> và <strong>VITE_SUPABASE_ANON_KEY</strong> trong bảng điều khiển Secrets của AI Studio.
+          </p>
+          <div className="bg-gray-100 p-4 rounded-lg text-left text-sm font-mono break-all">
+            VITE_SUPABASE_URL=...<br/>
+            VITE_SUPABASE_ANON_KEY=...
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      setImage(file);
-      setPreviewUrl(URL.createObjectURL(file));
-    }
-  };
-
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
-    }
-  }, [messages]);
-
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.lang = 'vi-VN';
-      recognitionRef.current.onresult = (e: any) => {
-        const transcript = e.results[0][0].transcript;
-        setInput(transcript);
-        setIsListening(false);
-      };
-      recognitionRef.current.onend = () => setIsListening(false);
-    }
-  }, []);
-
-  const handleSend = async (textOverride?: any) => {
-    const text = typeof textOverride === 'string' ? textOverride : input;
-    if (typeof text !== 'string' || (!text.trim() && !image)) return;
-
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', text: text || "Hãy phân tích hình ảnh đơn thuốc này." };
-    setMessages(prev => [...prev, userMsg]);
-    setInput('');
-    const currentImage = image;
-    setImage(null);
-    setPreviewUrl(null);
-    setIsAnalyzing(true);
-
-    const profileString = `Tuổi: ${patientProfile.age}, Cân nặng: ${patientProfile.weight}kg, Nhóm máu: ${patientProfile.bloodType}, Thai kỳ: ${patientProfile.pregnancyStatus}, Chức năng Gan/Thận: ${patientProfile.renalHepatic}, Dị ứng: ${patientProfile.allergy}, Bệnh nền: ${patientProfile.conditions}, Đang dùng thuốc: ${patientProfile.currentMeds}`;
-
+  const fetchUserRole = async (userId: string) => {
+    setLoadingRole(true);
     try {
-      const response = await analyzePrescription(currentImage, text, profileString);
-      const aiMsg: Message = { id: (Date.now() + 1).toString(), role: 'ai', text: response || "Không có phản hồi từ AI." };
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId)
+        .maybeSingle() as any;
       
-      const audioBase64 = await generateSpeech(aiMsg.text);
-      if (audioBase64) {
-        aiMsg.audio = audioBase64;
-      }
+      if (error) throw error;
 
-      setMessages(prev => [...prev, aiMsg]);
+      const role = data ? data.role : 'none';
+      setUserRole(role);
+      (window as any).userRole = role; // Gán quyền lấy được vào biến toàn cục
     } catch (error: any) {
-      console.error("Full Error Object:", error);
-      let errorMsg = "Đã xảy ra lỗi khi kết nối với AI.";
-      
-      if (error.message) {
-        if (error.message.includes('MISSING_API_KEY')) {
-          errorMsg = "Lỗi: Chưa tìm thấy API Key. Vui lòng thêm biến GEMINI_API_KEY vào Vercel và Redeploy.";
-        } else if (error.message.includes('API key')) {
-          errorMsg = "Lỗi: Khóa API của bạn bị Google từ chối (Không hợp lệ). Vui lòng kiểm tra lại mã GEMINI_API_KEY đã nhập chính xác chưa.";
-        } else if (error.message.includes('quota')) {
-          errorMsg = "Lỗi: Đã hết hạn mức sử dụng AI (Quota exceeded). Vui lòng thử lại sau.";
-        } else {
-          errorMsg = `Lỗi hệ thống: ${error.message}`;
-        }
-      } else if (typeof error === 'string') {
-        errorMsg = `Lỗi: ${error}`;
-      } else {
-        errorMsg = "Lỗi không xác định khi gọi AI. Vui lòng kiểm tra Console log.";
-      }
-      
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'ai', text: errorMsg }]);
+      console.error("Lỗi khi tải quyền người dùng:", error);
+      setUserRole('none');
+      (window as any).userRole = 'none';
     } finally {
-      setIsAnalyzing(false);
+      setLoadingRole(false);
     }
   };
 
-  const startListening = () => {
-    if (recognitionRef.current) {
-      setIsListening(true);
-      recognitionRef.current.start();
+  const fetchConfig = async () => {
+    const { data } = await supabase
+      .from('config')
+      .select('*')
+      .eq('user_id', PRIMARY_CONFIG_ID)
+      .single() as any;
+    if (data) {
+      setConfig(data);
+      document.documentElement.style.setProperty('--primary-color', data.primary_color);
     }
   };
 
-  const stopListening = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-    }
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setActiveTab('home');
+    setIsManagerAuthenticated(false);
+    showNotification("Đã đăng xuất");
   };
 
-  const saveProfile = () => {
-    localStorage.setItem('pharmaProfile', JSON.stringify(patientProfile));
-    setIsProfileOpen(false);
-  };
-
-  const playAudio = (base64: string) => {
-    const audio = new Audio(`data:audio/wav;base64,${base64}`);
-    audio.play();
-  };
-
-  const handlePaste = (e: React.ClipboardEvent) => {
-    const items = e.clipboardData.items;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const file = items[i].getAsFile();
-        if (file) {
-          setImage(file);
-          setPreviewUrl(URL.createObjectURL(file));
-        }
+  const handleTabChange = (tab: string) => {
+    if (tab === 'management') {
+      if (userRole === 'admin' || isManagerAuthenticated) {
+        setActiveTab(tab);
+      } else if (userRole === 'vip') {
+        setPasscodeModalOpen(true);
+      } else {
+        // userRole === 'none'
+        setActiveTab(tab);
       }
+      return;
     }
+    setActiveTab(tab);
   };
+
+  const handlePasscodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { data, error } = await supabase.rpc('fn_check_manager_passcode', { 
+      input_passcode: passcode 
+    } as any) as any;
+    
+    if (error) {
+      showNotification("Lỗi xác thực!", true);
+    } else if (data) {
+      setIsManagerAuthenticated(true);
+      setPasscodeModalOpen(false);
+      setActiveTab('management');
+      showNotification("Xác thực thành công!");
+    } else {
+      showNotification("Mật khẩu không chính xác!", true);
+    }
+    setPasscode('');
+  };
+
+  if (!session) return (
+    <div className="min-h-screen">
+      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-full max-w-md px-4">
+        <BackgroundMusicPlayer active={true} />
+      </div>
+      <Auth />
+      <Toaster position="top-center" />
+    </div>
+  );
+
+  if (loadingRole) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-rose-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-primary font-bold animate-pulse">Đang kiểm tra quyền truy cập...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Các hàm kiểm tra quyền nhanh (Core Logic)
+  const HAS_VIEW_ACCESS = () => userRole === 'vip' || userRole === 'admin';
+  const HAS_VIP_ACCESS = () => userRole === 'vip' || userRole === 'admin';
+  const HAS_ADMIN_ACCESS = () => userRole === 'admin';
+
+  // Gán các hàm kiểm tra vào window để sử dụng ở mọi nơi nếu cần
+  (window as any).HAS_VIEW_ACCESS = HAS_VIEW_ACCESS;
+  (window as any).HAS_VIP_ACCESS = HAS_VIP_ACCESS;
+  (window as any).HAS_ADMIN_ACCESS = HAS_ADMIN_ACCESS;
+
+  const hasBackgroundAccess = HAS_VIP_ACCESS();
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
-      {/* Sidebar Overlay */}
-      <AnimatePresence>
-        {isSidebarOpen && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setIsSidebarOpen(false)}
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[90] lg:hidden"
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Sidebar */}
-      <aside className={`
-        fixed inset-y-0 left-0 z-[100] w-72 glass-panel border-r border-sky-100 p-6 flex flex-col transition-transform duration-300 lg:relative lg:translate-x-0
-        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-3">
-            <div className="bg-gradient-to-br from-sky-400 to-sky-600 w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg shadow-sky-200">
-              <Microchip size={20} />
-            </div>
-            <h1 className="text-xl font-bold gradient-text">PharmaAI 2026</h1>
-          </div>
-          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 text-slate-400 hover:text-red-500">
-            <X size={24} />
-          </button>
+    <div className="min-h-screen flex flex-col md:flex-row">
+      <Toaster position="top-center" />
+      <MemoriesNotification />
+      <BackgroundMusicPlayer active={true} />
+      
+      {/* Background Layer */}
+      {hasBackgroundAccess && (
+        <div className="fixed inset-0 -z-20 overflow-hidden pointer-events-none select-none">
+          {config.background_video_url ? (
+            <video
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="w-full h-full object-cover opacity-100 transition-opacity duration-1000"
+              src={config.background_video_url}
+              style={{ willChange: 'transform' }}
+            />
+          ) : config.background_image_url ? (
+            <div 
+              className="w-full h-full bg-cover bg-center bg-fixed transition-opacity duration-1000"
+              style={{ 
+                backgroundImage: `url(${config.background_image_url})`,
+                willChange: 'transform'
+              }}
+            />
+          ) : null}
         </div>
+      )}
 
-        <div className="space-y-3 mb-8">
-          <Button 
-            onClick={() => { setMessages([]); setIsSidebarOpen(false); }}
-            className="w-full"
-            icon={Plus}
-          >
-            Tư vấn mới
-          </Button>
+      <Navigation 
+        activeTab={activeTab} 
+        setActiveTab={handleTabChange} 
+        userRole={userRole}
+        onLogout={handleLogout}
+      />
 
-          <Button 
-            onClick={() => setIsProfileOpen(true)}
-            variant="outline"
-            className="w-full"
-            icon={UserCircle}
-          >
-            Hồ sơ cá nhân
-          </Button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto space-y-4 scrollbar-hide">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Lịch sử tư vấn</p>
-          <div className="space-y-2">
-            {messages.length > 0 ? (
-              <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-xs font-semibold text-blue-700 truncate">
-                Phiên tư vấn hiện tại
-              </div>
-            ) : (
-              <p className="text-xs text-slate-400 italic">Chưa có lịch sử tư vấn</p>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-auto pt-6 border-t border-sky-50 space-y-4">
-          <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
-            <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center text-sky-600">
-              <Info size={16} />
+      <main className="flex-grow md:ml-16 p-4 md:p-12 pb-24 md:pb-12">
+        <div className="container mx-auto max-w-6xl">
+          {activeTab === 'home' && (
+            <div id="gallery-container">
+              <Gallery config={config} userRole={userRole} />
             </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Developer</span>
-              <span className="text-xs font-bold text-slate-700 truncate">NĐT</span>
-              <span className="text-[10px] text-slate-500 italic">Lead Developer</span>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <a 
-              href="https://github.com/ndthuan12b3-a11y/PharmaAI" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 text-[10px] font-bold text-slate-500 hover:text-sky-600 transition-colors"
-            >
-              <Github size={14} />
-              <span>GitHub Repository</span>
-            </a>
-            <div className="flex flex-col gap-1">
-              <span className="text-[9px] text-slate-400 font-medium">Version v2.0.26 (Stable)</span>
-              <span className="text-[9px] text-slate-400 font-medium">© 2026 NĐT. All rights reserved.</span>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main 
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className="flex-1 flex flex-col relative min-w-0"
-      >
-        {/* Drag Overlay */}
-        <AnimatePresence>
-          {isDragging && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 z-[200] bg-sky-500/20 backdrop-blur-md border-4 border-dashed border-sky-400 m-4 rounded-3xl flex flex-col items-center justify-center text-sky-700"
-            >
-              <div className="bg-white p-8 rounded-full shadow-2xl mb-4">
-                <ImageIcon size={64} className="animate-bounce" />
-              </div>
-              <p className="text-2xl font-bold">Thả ảnh đơn thuốc vào đây</p>
-              <p className="text-sky-600">PharmaAI sẽ tự động bóc tách dữ liệu</p>
-            </motion.div>
           )}
-        </AnimatePresence>
-        {/* Header */}
-        <header className="h-16 flex items-center justify-between px-6 glass-panel border-b border-sky-100 z-10 sticky top-0">
-          <div className="flex items-center gap-4">
-            <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
-              <Menu size={20} />
-            </button>
-            <div className="flex flex-col">
-              <span className="text-sm font-bold text-slate-800">Phiên tư vấn AI</span>
-              <span className="text-[10px] text-green-500 font-semibold uppercase flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Sẵn sàng kết nối
-              </span>
+          {activeTab === 'timeline' && (
+            <div id="timeline-container">
+              <Timeline config={config} userRole={userRole} />
             </div>
-          </div>
-        </header>
-
-        {/* Chat Area */}
-        <section ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 scroll-smooth">
-          {messages.length === 0 && (
-            <div className="max-w-2xl mx-auto mt-10 space-y-8">
-              <div className="text-center space-y-4">
-                <div className="inline-block p-4 bg-white rounded-3xl shadow-xl shadow-sky-100 border border-sky-50">
-                  <UserMd size={40} className="text-sky-500" />
-                </div>
-                <h2 className="text-3xl font-bold text-slate-800">Dược sĩ Lâm sàng AI 2026</h2>
-                <p className="text-slate-500 text-lg">Hệ thống AI kết nối trực tiếp với <b>Dược thư Quốc gia Việt Nam</b> và các nguồn dữ liệu y khoa uy tín (FDA, WHO, Bộ Y tế).</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Card 
-                  variant="outline"
-                  className="cursor-pointer group hover:border-sky-300 hover:bg-sky-50/50 transition-all"
-                  onClick={() => setInput('Tra cứu thông tin thuốc [Tên thuốc] trong Dược thư Quốc gia Việt Nam mới nhất.')}
+          )}
+          {activeTab === 'management' && (userRole === 'admin' || isManagerAuthenticated) && (
+            <Management 
+              userRole={userRole} 
+              config={config} 
+              onConfigUpdate={fetchConfig} 
+              userId={session.user.id}
+            />
+          )}
+          {activeTab === 'management' && userRole === 'none' && !isManagerAuthenticated && (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8 bg-white rounded-3xl shadow-xl border border-red-100">
+              <ShieldAlert className="w-16 h-16 text-red-500 mb-4" />
+              <h2 className="text-2xl font-bold text-gray-800 mb-2">Yêu Cầu Quyền Truy Cập</h2>
+              <p className="text-gray-600 max-w-md mb-6">
+                Bạn cần có quyền <strong>VIP</strong> hoặc <strong>Admin</strong> để truy cập vào tính năng quản lý này. 
+                Vui lòng liên hệ quản trị viên để được cấp quyền.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <a 
+                  href="https://zalo.me/84866264751" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="px-8 py-3 bg-blue-500 text-white rounded-full font-bold hover:bg-blue-600 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2"
                 >
-                  <Capsules size={20} className="text-sky-500 mb-2 group-hover:scale-110 transition" />
-                  <p className="text-sm font-semibold text-slate-700">Tra cứu Dược thư Quốc gia</p>
-                  <p className="text-xs text-slate-400">Kết nối dữ liệu thuốc chính thống VN</p>
-                </Card>
-
-                <Card 
-                  variant="outline"
-                  className="cursor-pointer group hover:border-sky-300 hover:bg-sky-50/50 transition-all"
-                  onClick={() => setInput('Phân tích tương tác giữa [Tên thuốc 1] và [Tên thuốc 2] dựa trên Dược thư Quốc gia?')}
+                  Liên hệ qua Zalo
+                </a>
+                <button 
+                  onClick={() => setActiveTab('home')}
+                  className="px-8 py-3 bg-gray-100 text-gray-700 rounded-full font-bold hover:bg-gray-200 transition-all transform hover:scale-105 shadow-md"
                 >
-                  <ShieldAlert size={20} className="text-sky-500 mb-2 group-hover:scale-110 transition" />
-                  <p className="text-sm font-semibold text-slate-700">Kiểm tra tương tác</p>
-                  <p className="text-xs text-slate-400">Phát hiện các loại thuốc kỵ nhau</p>
-                </Card>
-                
-                <Card 
-                  variant="outline"
-                  className="cursor-pointer group hover:border-sky-300 hover:bg-sky-50/50 transition-all"
-                  onClick={() => {
-                    setInput('Hãy bóc tách đơn thuốc trong ảnh và phân tích chi tiết giúp tôi.');
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = 'image/*';
-                    input.onchange = (e: any) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setImage(file);
-                        setPreviewUrl(URL.createObjectURL(file));
-                      }
-                    };
-                    input.click();
-                  }}
-                >
-                  <FileInvoiceDollar size={20} className="text-sky-500 mb-2 group-hover:scale-110 transition" />
-                  <p className="text-sm font-semibold text-slate-700">Đọc đơn thuốc bệnh viện</p>
-                  <p className="text-xs text-slate-400">Bóc tách liều dùng từ ảnh chụp</p>
-                </Card>
-
-                <Card 
-                  variant="outline"
-                  className="cursor-pointer group hover:border-sky-300 hover:bg-sky-50/50 transition-all"
-                  onClick={() => setInput('Lên lịch uống thuốc cho bệnh nhân đang dùng: [Liệt kê các thuốc và liều lượng].')}
-                >
-                  <Activity size={20} className="text-sky-500 mb-2 group-hover:scale-110 transition" />
-                  <p className="text-sm font-semibold text-slate-700">Lên lịch uống thuốc</p>
-                  <p className="text-xs text-slate-400">Tối ưu hóa thời gian dùng thuốc</p>
-                </Card>
+                  Quay Lại Trang Chủ
+                </button>
               </div>
             </div>
           )}
-
-          <div className="max-w-3xl mx-auto space-y-6">
-            {messages.map((msg) => (
-              <ChatMessage key={msg.id} msg={msg} playAudio={playAudio} />
-            ))}
-            {isAnalyzing && (
-              <div className="flex justify-start animate-fadeIn">
-                <div className="chat-bubble-ai border border-sky-100 px-5 py-4 rounded-3xl shadow-md flex items-center gap-3">
-                  <Loader2 size={18} className="text-sky-600 animate-spin" />
-                  <span className="text-sm font-medium text-slate-600">AI đang phân tích dữ liệu lâm sàng...</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Input Area */}
-        <ChatInput 
-          input={input}
-          setInput={setInput}
-          onSend={handleSend}
-          isAnalyzing={isAnalyzing}
-          image={image}
-          setImage={setImage}
-          previewUrl={previewUrl}
-          setPreviewUrl={setPreviewUrl}
-          isListening={isListening}
-          startListening={startListening}
-          stopListening={stopListening}
-        />
+        </div>
       </main>
 
-      {/* Profile Modal */}
-      <PatientProfileModal 
-        isOpen={isProfileOpen}
-        onClose={() => setIsProfileOpen(false)}
-        profile={patientProfile}
-        setProfile={setPatientProfile}
-        onSave={saveProfile}
-      />
+      <Modal
+        isOpen={passcodeModalOpen}
+        onClose={() => setPasscodeModalOpen(false)}
+        title="Xác Thực Quản Trị"
+        className="max-w-sm"
+      >
+        <form onSubmit={handlePasscodeSubmit} className="space-y-4 text-center">
+          <p className="text-sm text-gray-500 mb-4">
+            Vui lòng nhập mật khẩu quản lý để tiếp tục.
+          </p>
+          <input
+            type="password"
+            value={passcode}
+            onChange={(e) => setPasscode(e.target.value)}
+            placeholder="Mật khẩu"
+            className="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-primary/20 rounded-2xl outline-none text-center font-bold tracking-widest"
+            autoFocus
+          />
+          <button type="submit" className="w-full py-4 btn-primary-gradient rounded-2xl font-bold soft-shadow">
+            Xác Nhận
+          </button>
+        </form>
+      </Modal>
     </div>
   );
 }
