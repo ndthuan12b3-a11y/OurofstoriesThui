@@ -4,7 +4,8 @@ import { GoogleGenAI } from "@google/genai";
 import { supabase } from '../lib/supabase';
 import { formatDate, calculateDays, cn } from '../lib/utils';
 import { AppConfig } from '../types';
-import { Heart, Lock, Sparkles, Calendar, Camera, MapPin, X, Info, Plus, Upload, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { Heart, Lock, Sparkles, Calendar, Camera, MapPin, X, Info, Plus, Upload, Image as ImageIcon, RefreshCw, ChevronRight } from 'lucide-react';
+import { TimelineSkeleton } from './Skeleton';
 import { Modal } from './Modal';
 import { showNotification } from '../lib/notifications';
 import { JourneyStoryteller } from './JourneyStoryteller';
@@ -114,17 +115,19 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
 
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: [
-          {
-            inlineData: {
-              data: base64Data,
-              mimeType: uploadForm.photoFile.type
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                data: base64Data,
+                mimeType: uploadForm.photoFile.type
+              }
+            },
+            {
+              text: "Hãy viết một câu mô tả (title) ngắn gọn và một đoạn cảm xúc (description) thật hay, lãng mạn cho bức ảnh này của một cặp đôi. Định dạng trả về: [Title]: ... [Description]: ... Ngôn ngữ: Tiếng Việt."
             }
-          },
-          {
-            text: "Hãy viết một câu mô tả (title) ngắn gọn và một đoạn cảm xúc (description) thật hay, lãng mạn cho bức ảnh này của một cặp đôi. Định dạng trả về: [Title]: ... [Description]: ... Ngôn ngữ: Tiếng Việt."
-          }
-        ],
+          ]
+        },
       });
 
       const text = response.text?.trim() || "";
@@ -151,8 +154,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
       const { data } = await supabase
         .from('events')
         .select('*')
-        .order('date', { ascending: false })
-        .limit(10);
+        .order('date', { ascending: false });
       if (data) setEvents(data);
       setLoading(false);
     };
@@ -214,6 +216,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
       showNotification("Đã thêm kỷ niệm mới!");
       setIsUploadModalOpen(false);
       setUploadForm({ title: '', date: '', description: '', photoFile: null });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
       showNotification("Lỗi khi lưu kỷ niệm!", true);
     } finally {
@@ -345,9 +348,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
 
         <AnimatePresence mode="popLayout">
           {loading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="ml-16 h-32 rounded-3xl skeleton animate-pulse bg-gray-100" />
-            ))
+            <TimelineSkeleton />
           ) : events.length > 0 ? (
             events.map((event, index) => (
               <EventItem key={event.id} event={event} index={index} onClick={setSelectedEvent} />

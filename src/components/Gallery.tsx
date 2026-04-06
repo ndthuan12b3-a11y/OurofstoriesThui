@@ -1,9 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
+import { 
+  Settings, X, Tag, Calendar, Info, Lock, Plus, Camera, 
+  Upload, Image as ImageIcon, Sparkles, RefreshCw, ChevronDown,
+  ChevronLeft, ChevronRight, Download, Search, Filter
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { formatDate } from '../lib/utils';
+import { formatDate, cn } from '../lib/utils';
 import { AppConfig } from '../types';
+import { GallerySkeleton } from './Skeleton';
+import { Modal } from './Modal';
+import { showNotification } from '../lib/notifications';
 
 interface GalleryProps {
   config: AppConfig;
@@ -142,17 +150,19 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
 
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: [
-          {
-            inlineData: {
-              data: base64Data,
-              mimeType: uploadForm.photoFile.type
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                data: base64Data,
+                mimeType: uploadForm.photoFile.type
+              }
+            },
+            {
+              text: "Hãy viết một câu caption (chú thích) thật hay, lãng mạn hoặc hài hước cho bức ảnh này của một cặp đôi. Chỉ trả về nội dung caption, không thêm bất kỳ lời dẫn nào khác. Ngôn ngữ: Tiếng Việt."
             }
-          },
-          {
-            text: "Hãy viết một câu caption (chú thích) thật hay, lãng mạn hoặc hài hước cho bức ảnh này của một cặp đôi. Chỉ trả về nội dung caption, không thêm bất kỳ lời dẫn nào khác. Ngôn ngữ: Tiếng Việt."
-          }
-        ],
+          ]
+        },
       });
 
       const caption = response.text?.trim() || "";
@@ -208,6 +218,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
       showNotification("Đã thêm ảnh mới!");
       setIsUploadModalOpen(false);
       setUploadForm({ description: '', tags: '', photoFile: null });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
       showNotification("Lỗi khi lưu ảnh!", true);
     } finally {
@@ -255,7 +266,10 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
         
         {HAS_VIP_ACCESS() && (
           <button
-            onClick={() => setIsUploadModalOpen(true)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsUploadModalOpen(true);
+            }}
             className="mt-6 inline-flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-2xl font-bold soft-shadow hover:scale-105 transition-transform"
           >
             <Plus size={20} />
@@ -350,9 +364,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
       {/* Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 min-h-[400px]">
         {loading ? (
-          Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="aspect-square rounded-2xl skeleton animate-pulse bg-gray-100" />
-          ))
+          <GallerySkeleton />
         ) : currentPhotos.length > 0 ? (
           currentPhotos.map(photo => (
             <PhotoItem key={photo.id} photo={photo} onClick={setSelectedPhoto} />
@@ -391,64 +403,105 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setSelectedPhoto(null)}
-              className="absolute inset-0 bg-black/90 backdrop-blur-md"
+              className="absolute inset-0 bg-black/95 backdrop-blur-xl"
             />
+            
+            {/* Navigation Buttons */}
+            <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 flex justify-between pointer-events-none z-20">
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const idx = photos.findIndex(p => p.id === selectedPhoto.id);
+                  if (idx > 0) setSelectedPhoto(photos[idx - 1]);
+                }}
+                className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center backdrop-blur-md pointer-events-auto transition-all"
+              >
+                <ChevronLeft size={24} />
+              </button>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const idx = photos.findIndex(p => p.id === selectedPhoto.id);
+                  if (idx < photos.length - 1) setSelectedPhoto(photos[idx + 1]);
+                }}
+                className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center backdrop-blur-md pointer-events-auto transition-all"
+              >
+                <ChevronRight size={24} />
+              </button>
+            </div>
+
             <motion.div
-              layoutId={selectedPhoto.id}
-              className="relative max-w-5xl w-full bg-white rounded-3xl overflow-hidden shadow-2xl"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative max-w-6xl w-full bg-white rounded-[2.5rem] overflow-hidden shadow-2xl z-10"
             >
               <button
                 onClick={() => setSelectedPhoto(null)}
-                className="absolute top-4 right-4 z-10 p-2 bg-white/20 hover:bg-white/40 text-white rounded-full backdrop-blur-md transition-colors"
+                className="absolute top-6 right-6 z-20 p-2 bg-black/20 hover:bg-black/40 text-white rounded-full backdrop-blur-md transition-colors"
               >
                 <X size={24} />
               </button>
-              <div className="flex flex-col md:flex-row h-full max-h-[90vh]">
-                <div className="md:w-2/3 bg-black flex items-center justify-center">
-                  <img
+              
+              <div className="flex flex-col lg:flex-row h-full max-h-[90vh]">
+                <div className="lg:w-3/4 bg-black flex items-center justify-center relative group">
+                  <motion.img
+                    key={selectedPhoto.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
                     src={selectedPhoto.photo_url}
                     alt={selectedPhoto.description}
                     referrerPolicy="no-referrer"
                     className="max-w-full max-h-full object-contain"
                   />
+                  <a 
+                    href={selectedPhoto.photo_url} 
+                    download 
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="absolute bottom-6 right-6 p-3 bg-white/20 hover:bg-white/40 text-white rounded-full backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Download size={20} />
+                  </a>
                 </div>
-                <div className="md:w-1/3 p-8 flex flex-col bg-gray-50/50">
-                  <div className="mb-6">
-                    <div className="flex items-center gap-2 text-primary mb-2">
-                      <Info size={18} />
-                      <span className="text-xs font-black uppercase tracking-wider">Mô tả</span>
-                    </div>
-                    <h2 className="text-2xl font-bold text-gray-800 leading-tight">{selectedPhoto.description}</h2>
-                  </div>
-
-                  {selectedPhoto.tags && selectedPhoto.tags.length > 0 && (
-                    <div className="mb-6">
-                      <div className="flex items-center gap-2 text-gray-400 mb-3">
-                        <Tag size={16} />
-                        <span className="text-xs font-bold uppercase tracking-wider">Gắn thẻ</span>
+                <div className="lg:w-1/4 p-8 flex flex-col bg-gray-50/50 overflow-y-auto">
+                  <div className="mb-8">
+                    <div className="flex items-center gap-2 text-primary mb-3">
+                      <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                        <Info size={16} />
                       </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest">Chi tiết ảnh</span>
+                    </div>
+                    <h2 className="text-2xl font-black text-gray-800 leading-tight mb-4">{selectedPhoto.description}</h2>
+                    
+                    {selectedPhoto.tags && selectedPhoto.tags.length > 0 && (
                       <div className="flex flex-wrap gap-2">
                         {selectedPhoto.tags.map(tag => (
-                          <span key={tag} className="px-3 py-1 bg-white border border-gray-100 text-gray-500 text-[10px] font-bold rounded-full shadow-sm hover:border-primary/30 hover:text-primary transition-colors">
+                          <span key={tag} className="px-3 py-1 bg-white border border-gray-100 text-gray-500 text-[10px] font-black rounded-full shadow-sm">
                             #{tag}
                           </span>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
-                  <div className="mt-auto pt-6 border-t border-gray-100">
-                    <div className="flex items-center gap-3 text-gray-400">
-                      <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm border border-gray-50">
-                        <Calendar size={18} className="text-primary" />
+                  <div className="mt-auto pt-8 border-t border-gray-100 space-y-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-gray-50">
+                        <Calendar size={20} className="text-primary" />
                       </div>
                       <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-300">Ngày đăng</p>
-                        <p className="text-sm font-bold text-gray-600">
-                          {formatDate(selectedPhoto.created_at, true)}
-                        </p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-300">Ngày lưu giữ</p>
+                        <p className="text-sm font-bold text-gray-700">{formatDate(selectedPhoto.created_at)}</p>
                       </div>
                     </div>
+                    
+                    <button 
+                      onClick={() => setSelectedPhoto(null)}
+                      className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-primary transition-colors soft-shadow"
+                    >
+                      Đóng lại
+                    </button>
                   </div>
                 </div>
               </div>
@@ -559,7 +612,4 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
   );
 };
 
-import { Settings, X, Tag, Calendar, Info, Lock, Plus, Camera, Upload, Image as ImageIcon, Sparkles, RefreshCw, ChevronDown } from 'lucide-react';
-import { cn } from '../lib/utils';
-import { Modal } from './Modal';
-import { showNotification } from '../lib/notifications';
+// End of file

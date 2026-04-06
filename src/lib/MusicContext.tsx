@@ -13,11 +13,15 @@ interface MusicContextType {
   isPlaying: boolean;
   isRepeat: boolean;
   isUnlocked: boolean;
+  currentTime: number;
+  duration: number;
+  volume: number;
   togglePlay: () => void;
   playNext: () => void;
   playPrev: () => void;
   toggleRepeat: () => void;
   seekTo: (time: number) => void;
+  setVolume: (volume: number) => void;
   audioRef: React.RefObject<HTMLAudioElement>;
 }
 
@@ -27,9 +31,40 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [playlist, setPlaylist] = useState<Track[]>([]);
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(true); // Mặc định là true để tự động phát
+  const isPlayingRef = useRef(isPlaying);
   const [isRepeat, setIsRepeat] = useState(false);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolumeState] = useState(0.7);
   const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleLoadedMetadata = () => setDuration(audio.duration);
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    };
+  }, []);
 
   useEffect(() => {
     const fetchPlaylist = async () => {
@@ -51,27 +86,40 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Lắng nghe tương tác đầu tiên để mở khóa âm thanh
     const unlockAudio = () => {
       if (!isUnlocked && audioRef.current) {
-        // Thử phát nhạc để mở khóa context âm thanh của trình duyệt
-        audioRef.current.play().then(() => {
-          setIsUnlocked(true);
-          // Nếu đang ở trạng thái isPlaying=true thì cứ để nó phát
-          if (!isPlaying) {
-            audioRef.current?.pause();
-          }
-          window.removeEventListener('click', unlockAudio);
-          window.removeEventListener('touchstart', unlockAudio);
-        }).catch(error => {
-          // Nếu chưa có src thì play() sẽ lỗi, nhưng ta vẫn coi như đã "tương tác"
-          // Trình duyệt chỉ cần 1 lần gọi play() thành công sau tương tác
-          if (audioRef.current?.src) {
-            console.error("Unlock error:", error);
-          } else {
-            // Nếu chưa có src, ta vẫn đánh dấu là đã unlock để khi có src nó tự phát
+        // Gỡ bỏ listener ngay lập tức để tránh gọi nhiều lần
+        window.removeEventListener('click', unlockAudio);
+        window.removeEventListener('touchstart', unlockAudio);
+
+        const playPromise = audioRef.current.play();
+        
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
             setIsUnlocked(true);
-            window.removeEventListener('click', unlockAudio);
-            window.removeEventListener('touchstart', unlockAudio);
-          }
-        });
+            // Sử dụng ref để lấy giá trị mới nhất của isPlaying
+            if (!isPlayingRef.current) {
+              audioRef.current?.pause();
+            }
+          }).catch(error => {
+            const errorMessage = error.message || String(error);
+            // Bỏ qua lỗi do bị ngắt quãng (AbortError) hoặc các biến thể của nó
+            if (
+              error.name === 'AbortError' || 
+              errorMessage.toLowerCase().includes('interrupted') ||
+              errorMessage.toLowerCase().includes('pause()')
+            ) {
+              return;
+            }
+
+            if (audioRef.current?.src) {
+              console.error("Unlock error:", error);
+              // Nếu lỗi khác (ví dụ: mạng), vẫn thử gán lại listener để người dùng click lại
+              window.addEventListener('click', unlockAudio);
+              window.addEventListener('touchstart', unlockAudio);
+            } else {
+              setIsUnlocked(true);
+            }
+          });
+        }
       }
     };
 
@@ -88,10 +136,20 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const togglePlay = () => {
     if (audioRef.current) {
-      if (isPlaying) audioRef.current.pause();
-      else audioRef.current.play().catch(error => {
-        if (error.name !== 'AbortError') console.error(error);
-      });
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play().catch(error => {
+          const errorMessage = error.message || String(error);
+          if (
+            error.name !== 'AbortError' && 
+            !errorMessage.toLowerCase().includes('interrupted') &&
+            !errorMessage.toLowerCase().includes('pause()')
+          ) {
+            console.error("Toggle play error:", error);
+          }
+        });
+      }
       setIsPlaying(!isPlaying);
     }
   };
@@ -116,8 +174,15 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (audioRef.current) audioRef.current.currentTime = time;
   };
 
+  const setVolume = (v: number) => setVolumeState(v);
+
   return (
-    <MusicContext.Provider value={{ playlist, currentTrack, isPlaying, isRepeat, isUnlocked, togglePlay, playNext, playPrev, toggleRepeat, seekTo, audioRef }}>
+    <MusicContext.Provider value={{ 
+      playlist, currentTrack, isPlaying, isRepeat, isUnlocked, 
+      currentTime, duration, volume,
+      togglePlay, playNext, playPrev, toggleRepeat, seekTo, setVolume,
+      audioRef 
+    }}>
       {children}
       <audio 
         ref={audioRef} 

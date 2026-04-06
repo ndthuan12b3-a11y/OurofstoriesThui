@@ -79,7 +79,9 @@ export const JourneyStoryteller: React.FC<JourneyStorytellerProps> = ({ config, 
 
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: prompt,
+        contents: {
+          parts: [{ text: prompt }]
+        },
       });
 
       setStory(response.text || "Không thể tạo câu chuyện lúc này.");

@@ -1,19 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { Toaster } from 'react-hot-toast';
+import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from './lib/supabase';
 import { UserRole, AppConfig } from './types';
 import { Navigation } from './components/Navigation';
 import { Auth } from './components/Auth';
-import { Gallery } from './components/Gallery';
-import { Timeline } from './components/Timeline';
-import { Management } from './components/Management';
 import { Modal } from './components/Modal';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { MemoriesNotification } from './components/MemoriesNotification';
 import { showNotification } from './lib/notifications';
 import { cn } from './lib/utils';
-import { Lock, LogOut, ShieldAlert } from 'lucide-react';
+import { Lock, LogOut, ShieldAlert, Plus } from 'lucide-react';
+import { GallerySkeleton, TimelineSkeleton } from './components/Skeleton';
+
+// Lazy load components for performance
+const Gallery = lazy(() => import('./components/Gallery').then(m => ({ default: m.Gallery })));
+const Timeline = lazy(() => import('./components/Timeline').then(m => ({ default: m.Timeline })));
+const Management = lazy(() => import('./components/Management').then(m => ({ default: m.Management })));
 
 const PRIMARY_CONFIG_ID = '6857068c-7cc5-45ce-8099-23f0e3264251';
 
@@ -37,18 +41,39 @@ export default function App() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [isManagerAuthenticated, setIsManagerAuthenticated] = useState(false);
   const [passcodeModalOpen, setPasscodeModalOpen] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
   const [passcode, setPasscode] = useState('');
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowBackToTop(window.scrollY > 400);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   useEffect(() => {
     if (!SUPABASE_CONFIGURED) return;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error("Session error:", error.message);
+        // If there's a refresh token error, sign out to clear stale data
+        if (error.message.includes('refresh_token_not_found') || error.message.includes('Invalid Refresh Token')) {
+          supabase.auth.signOut();
+        }
+        setLoadingRole(false);
+        return;
+      }
       setSession(session);
       if (session) fetchUserRole(session.user.id);
       else setLoadingRole(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+        // Handle potential errors that might be passed in session or event
+      }
       setSession(session);
       if (session) fetchUserRole(session.user.id);
       else {
@@ -96,6 +121,9 @@ export default function App() {
       (window as any).userRole = role; // Gán quyền lấy được vào biến toàn cục
     } catch (error: any) {
       console.error("Lỗi khi tải quyền người dùng:", error);
+      if (error.message?.includes('Invalid Refresh Token') || error.message?.includes('refresh_token_not_found')) {
+        supabase.auth.signOut();
+      }
       setUserRole('none');
       (window as any).userRole = 'none';
     } finally {
@@ -229,50 +257,66 @@ export default function App() {
 
       <main className="flex-grow md:ml-16 p-4 md:p-12 pb-24 md:pb-12">
         <div className="container mx-auto max-w-6xl">
-          {activeTab === 'home' && (
-            <div id="gallery-container">
-              <Gallery config={config} userRole={userRole} />
-            </div>
-          )}
-          {activeTab === 'timeline' && (
-            <div id="timeline-container">
-              <Timeline config={config} userRole={userRole} />
-            </div>
-          )}
-          {activeTab === 'management' && (userRole === 'admin' || isManagerAuthenticated) && (
-            <Management 
-              userRole={userRole} 
-              config={config} 
-              onConfigUpdate={fetchConfig} 
-              userId={session.user.id}
-            />
-          )}
-          {activeTab === 'management' && userRole === 'none' && !isManagerAuthenticated && (
-            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8 bg-white rounded-3xl shadow-xl border border-red-100">
-              <ShieldAlert className="w-16 h-16 text-red-500 mb-4" />
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">Yêu Cầu Quyền Truy Cập</h2>
-              <p className="text-gray-600 max-w-md mb-6">
-                Bạn cần có quyền <strong>VIP</strong> hoặc <strong>Admin</strong> để truy cập vào tính năng quản lý này. 
-                Vui lòng liên hệ quản trị viên để được cấp quyền.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <a 
-                  href="https://zalo.me/84866264751" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="px-8 py-3 bg-blue-500 text-white rounded-full font-bold hover:bg-blue-600 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2"
-                >
-                  Liên hệ qua Zalo
-                </a>
-                <button 
-                  onClick={() => setActiveTab('home')}
-                  className="px-8 py-3 bg-gray-100 text-gray-700 rounded-full font-bold hover:bg-gray-200 transition-all transform hover:scale-105 shadow-md"
-                >
-                  Quay Lại Trang Chủ
-                </button>
-              </div>
-            </div>
-          )}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+            >
+              <Suspense fallback={
+                activeTab === 'home' ? <GallerySkeleton /> : 
+                activeTab === 'timeline' ? <TimelineSkeleton /> : 
+                <div className="flex items-center justify-center p-12"><div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>
+              }>
+                {activeTab === 'home' && (
+                  <div id="gallery-container">
+                    <Gallery config={config} userRole={userRole} />
+                  </div>
+                )}
+                {activeTab === 'timeline' && (
+                  <div id="timeline-container">
+                    <Timeline config={config} userRole={userRole} />
+                  </div>
+                )}
+                {activeTab === 'management' && (userRole === 'admin' || isManagerAuthenticated) && (
+                  <Management 
+                    userRole={userRole} 
+                    config={config} 
+                    onConfigUpdate={fetchConfig} 
+                    userId={session.user.id}
+                  />
+                )}
+                {activeTab === 'management' && userRole === 'none' && !isManagerAuthenticated && (
+                  <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8 bg-white rounded-3xl shadow-xl border border-red-100">
+                    <ShieldAlert className="w-16 h-16 text-red-500 mb-4" />
+                    <h2 className="text-2xl font-bold text-gray-800 mb-2">Yêu Cầu Quyền Truy Cập</h2>
+                    <p className="text-gray-600 max-w-md mb-6">
+                      Bạn cần có quyền <strong>VIP</strong> hoặc <strong>Admin</strong> để truy cập vào tính năng quản lý này. 
+                      Vui lòng liên hệ quản trị viên để được cấp quyền.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      <a 
+                        href="https://zalo.me/84866264751" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="px-8 py-3 bg-blue-500 text-white rounded-full font-bold hover:bg-blue-600 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2"
+                      >
+                        Liên hệ qua Zalo
+                      </a>
+                      <button 
+                        onClick={() => setActiveTab('home')}
+                        className="px-8 py-3 bg-gray-100 text-gray-700 rounded-full font-bold hover:bg-gray-200 transition-all transform hover:scale-105 shadow-md"
+                      >
+                        Quay Lại Trang Chủ
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Suspense>
+            </motion.div>
+          </AnimatePresence>
         </div>
       </main>
 
@@ -299,6 +343,21 @@ export default function App() {
           </button>
         </form>
       </Modal>
+
+      {/* Back to Top Button */}
+      <AnimatePresence>
+        {showBackToTop && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="fixed bottom-24 right-6 md:bottom-8 md:right-8 w-12 h-12 bg-white/80 backdrop-blur-md rounded-full shadow-xl border border-white/50 flex items-center justify-center text-primary z-[60] hover:scale-110 transition-transform"
+          >
+            <Plus className="rotate-45" size={24} />
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
