@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
+import ReactMarkdown from 'react-markdown';
 import { supabase } from '../lib/supabase';
 import { formatDate, calculateDays, cn } from '../lib/utils';
 import { AppConfig } from '../types';
-import { Heart, Lock, Sparkles, Calendar, Camera, MapPin, X, Info, Plus, Upload, Image as ImageIcon, RefreshCw, ChevronRight } from 'lucide-react';
+import { Heart, Lock, Sparkles, Calendar, Camera, MapPin, X, Info, Plus, Upload, Image as ImageIcon, RefreshCw, ChevronRight, BookOpen } from 'lucide-react';
 import { TimelineSkeleton } from './Skeleton';
 import { Modal } from './Modal';
 import { showNotification } from '../lib/notifications';
 import { JourneyStoryteller } from './JourneyStoryteller';
-import { LoveMoodTracker } from './LoveMoodTracker';
 
 interface TimelineProps {
   config: AppConfig;
@@ -85,6 +85,16 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
   const [uploadForm, setUploadForm] = useState({ title: '', date: '', description: '', photoFile: null as File | null });
   const [uploading, setUploading] = useState(false);
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
+  const [stories, setStories] = useState<any[]>([]);
+  const [selectedStory, setSelectedStory] = useState<any>(null);
+
+  const fetchStories = async () => {
+    const { data } = await supabase
+      .from('stories')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (data) setStories(data);
+  };
 
   const generateAICaption = async () => {
     if (!uploadForm.photoFile) {
@@ -160,14 +170,21 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
     };
 
     fetchEvents();
+    fetchStories();
 
     const channel = supabase
       .channel('events-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, fetchEvents)
       .subscribe();
 
+    const storiesChannel = supabase
+      .channel('stories-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stories' }, fetchStories)
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(storiesChannel);
     };
   }, []);
 
@@ -310,7 +327,34 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
 
       {HAS_VIEW_ACCESS() && (
         <div className="space-y-8 mb-12">
-          <LoveMoodTracker userRole={userRole} />
+          {/* Story Hub */}
+          {stories.length > 0 && (
+            <div className="bg-white/60 backdrop-blur-sm rounded-[2rem] p-6 border border-rose-50 soft-shadow">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-black text-gray-800 flex items-center gap-2">
+                  <BookOpen size={16} className="text-rose-400" />
+                  Kho Lưu Trữ Câu Chuyện
+                </h3>
+                <span className="text-[10px] font-bold text-rose-300 uppercase tracking-widest">{stories.length} câu chuyện</span>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+                {stories.map((story) => (
+                  <button
+                    key={story.id}
+                    onClick={() => setSelectedStory(story)}
+                    className="flex-shrink-0 w-32 h-40 bg-white rounded-2xl border border-rose-50 p-3 flex flex-col items-center justify-center text-center group hover:border-rose-200 transition-all hover:-translate-y-1"
+                  >
+                    <div className="w-10 h-10 bg-rose-50 rounded-full flex items-center justify-center text-rose-400 mb-3 group-hover:scale-110 transition-transform">
+                      <Heart size={18} fill="currentColor" />
+                    </div>
+                    <p className="text-[10px] font-black text-gray-700 line-clamp-2 mb-1">Hành Trình #{story.id.slice(0, 4)}</p>
+                    <p className="text-[8px] font-bold text-gray-400 uppercase">{formatDate(story.created_at)}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          
           <JourneyStoryteller config={config} userRole={userRole} />
         </div>
       )}
@@ -372,6 +416,31 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
         </motion.div>
         <p className="text-gray-400 font-black uppercase tracking-[0.3em] text-[10px]">To be continued...</p>
       </div>
+
+      {/* Story Detail Modal */}
+      <Modal
+        isOpen={!!selectedStory}
+        onClose={() => setSelectedStory(null)}
+        title="Hành Trình Kỷ Niệm"
+        className="max-w-3xl"
+      >
+        {selectedStory && (
+          <div className="p-4 md:p-8">
+            <div className="prose prose-stone prose-sm md:prose-base max-w-none">
+              <ReactMarkdown>{selectedStory.content}</ReactMarkdown>
+            </div>
+            <div className="mt-8 pt-6 border-t border-gray-100 flex justify-between items-center">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tạo vào: {formatDate(selectedStory.created_at, true)}</span>
+              <button 
+                onClick={() => setSelectedStory(null)}
+                className="text-primary font-bold text-sm"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Event Detail Modal */}
       <Modal

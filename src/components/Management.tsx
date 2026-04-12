@@ -4,7 +4,7 @@ import { UserRole, AppConfig } from '../types';
 import { 
   Plus, Edit, Trash2, Search, Save, Calendar, 
   Music, Image as ImageIcon, History, Users, ShieldCheck, Settings,
-  Volume2, VolumeX
+  Volume2, VolumeX, BookOpen
 } from 'lucide-react';
 import { showNotification } from '../lib/notifications';
 import { Modal } from './Modal';
@@ -96,7 +96,7 @@ interface ManagementProps {
 const PRIMARY_CONFIG_ID = '6857068c-7cc5-45ce-8099-23f0e3264251';
 
 export const Management: React.FC<ManagementProps> = ({ userRole, config, onConfigUpdate, userId }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'config' | 'events' | 'gallery' | 'music' | 'users'>('dashboard');
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'config' | 'events' | 'gallery' | 'music' | 'stories' | 'users'>('dashboard');
   
   // Core Logic helpers
   const HAS_VIP_ACCESS = () => userRole === 'vip' || userRole === 'admin';
@@ -104,11 +104,13 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
   const [events, setEvents] = useState<any[]>([]);
   const [gallery, setGallery] = useState<any[]>([]);
   const [music, setMusic] = useState<any[]>([]);
+  const [stories, setStories] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [stats, setStats] = useState({
     totalEvents: 0,
     totalPhotos: 0,
     totalMusic: 0,
+    totalStories: 0,
     totalUsers: 0
   });
   const [searchTerm, setSearchTerm] = useState('');
@@ -280,10 +282,11 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
     setLoading(true);
     try {
       if (activeSubTab === 'dashboard') {
-        const [eventsRes, galleryRes, musicRes, usersRes] = await Promise.all([
+        const [eventsRes, galleryRes, musicRes, storiesRes, usersRes] = await Promise.all([
           supabase.from('events').select('id', { count: 'exact' }),
           supabase.from('gallery').select('id', { count: 'exact' }),
           supabase.from('music_playlist').select('id', { count: 'exact' }),
+          supabase.from('stories').select('id', { count: 'exact' }),
           userRole === 'admin' ? supabase.rpc('get_all_users') : Promise.resolve({ count: 0 })
         ]);
 
@@ -291,6 +294,7 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
           totalEvents: eventsRes.count || 0,
           totalPhotos: galleryRes.count || 0,
           totalMusic: musicRes.count || 0,
+          totalStories: storiesRes.count || 0,
           totalUsers: (usersRes as any).data?.length || 0
         });
       }
@@ -308,6 +312,11 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
       if (activeSubTab === 'music' || activeSubTab === 'dashboard') {
         const { data } = await supabase.from('music_playlist').select('*').order('created_at', { ascending: true }) as any;
         if (data) setMusic(data);
+      }
+
+      if (activeSubTab === 'stories' || activeSubTab === 'dashboard') {
+        const { data } = await supabase.from('stories').select('*').order('created_at', { ascending: false }) as any;
+        if (data) setStories(data);
       }
       
       if (activeSubTab === 'users' && userRole === 'admin') {
@@ -464,6 +473,7 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
             { id: 'events', label: 'Kỷ Niệm', icon: History },
             { id: 'gallery', label: 'Ảnh', icon: ImageIcon },
             { id: 'music', label: 'Nhạc', icon: Music },
+            { id: 'stories', label: 'Câu Chuyện', icon: BookOpen },
             { id: 'users', label: 'Người Dùng', icon: Users, adminOnly: true },
           ].filter(t => !t.adminOnly || userRole === 'admin').map((tab) => (
             <button
@@ -492,6 +502,7 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
                 { label: 'Kỷ Niệm', value: stats.totalEvents, icon: History, color: 'text-blue-500', bg: 'bg-blue-50' },
                 { label: 'Hình Ảnh', value: stats.totalPhotos, icon: ImageIcon, color: 'text-green-500', bg: 'bg-green-50' },
                 { label: 'Bài Hát', value: stats.totalMusic, icon: Music, color: 'text-purple-500', bg: 'bg-purple-50' },
+                { label: 'Câu Chuyện', value: stats.totalStories, icon: BookOpen, color: 'text-rose-500', bg: 'bg-rose-50' },
                 { label: 'Người Dùng', value: stats.totalUsers, icon: Users, color: 'text-orange-500', bg: 'bg-orange-50' },
               ].map((stat, i) => (
                 <div key={i} className="bg-white p-6 rounded-3xl soft-shadow border border-gray-50">
@@ -690,6 +701,14 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
                         <th className="px-6 py-4 text-right">Thao tác</th>
                       </>
                     )}
+                    {activeSubTab === 'stories' && (
+                      <>
+                        <th className="px-6 py-4">STT</th>
+                        <th className="px-6 py-4">Nội dung tóm tắt</th>
+                        <th className="px-6 py-4">Ngày tạo</th>
+                        <th className="px-6 py-4 text-right">Thao tác</th>
+                      </>
+                    )}
                     {activeSubTab === 'users' && (
                       <>
                         <th className="px-6 py-4">STT</th>
@@ -745,6 +764,16 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
                       <td className="px-6 py-4 text-right space-x-2">
                         <button onClick={() => { setEditingItem(item); setIsMusicModalOpen(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit size={16} /></button>
                         <button onClick={() => handleDelete('music_playlist', item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                      </td>
+                    </tr>
+                  ))}
+                  {activeSubTab === 'stories' && stories.filter(s => s.content.toLowerCase().includes(searchTerm.toLowerCase())).map((item, index) => (
+                    <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 font-bold text-gray-400">{index + 1}</td>
+                      <td className="px-6 py-4 font-bold text-gray-700 truncate max-w-[400px]">{item.content.substring(0, 100)}...</td>
+                      <td className="px-6 py-4 text-gray-400 text-xs">{formatDate(item.created_at, true)}</td>
+                      <td className="px-6 py-4 text-right space-x-2">
+                        <button onClick={() => handleDelete('stories', item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
                       </td>
                     </tr>
                   ))}

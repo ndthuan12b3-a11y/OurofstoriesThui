@@ -160,6 +160,26 @@ export interface Database {
           created_at?: string
         }
       }
+      stories: {
+        Row: {
+          id: string
+          user_id: string
+          content: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          content: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          content?: string
+          created_at?: string
+        }
+      }
     }
     Functions: {
       fn_check_manager_passcode: {

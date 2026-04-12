@@ -23,8 +23,40 @@ interface Event {
 export const JourneyStoryteller: React.FC<JourneyStorytellerProps> = ({ config, userRole }) => {
   const [story, setStory] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [lastStoryDate, setLastStoryDate] = useState<string | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    const fetchLastStory = async () => {
+      const { data } = await supabase
+        .from('stories')
+        .select('created_at')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) setLastStoryDate(data.created_at);
+    };
+    fetchLastStory();
+  }, []);
+
+  const canGenerateStory = () => {
+    if (!lastStoryDate) return true;
+    const lastDate = new Date(lastStoryDate);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - lastDate.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays >= 7;
+  };
+
+  const getDaysUntilNextStory = () => {
+    if (!lastStoryDate) return 0;
+    const lastDate = new Date(lastStoryDate);
+    const nextDate = new Date(lastDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const diffTime = nextDate.getTime() - now.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
 
   const fetchEvents = async () => {
     const { data } = await supabase
@@ -36,6 +68,11 @@ export const JourneyStoryteller: React.FC<JourneyStorytellerProps> = ({ config, 
   };
 
   const generateStory = async () => {
+    if (!canGenerateStory()) {
+      showNotification(`Bạn chỉ có thể tạo câu chuyện mới sau ${getDaysUntilNextStory()} ngày nữa!`, true);
+      return;
+    }
+
     setLoading(true);
     try {
       const currentEvents = await fetchEvents();
@@ -84,7 +121,22 @@ export const JourneyStoryteller: React.FC<JourneyStorytellerProps> = ({ config, 
         },
       });
 
-      setStory(response.text || "Không thể tạo câu chuyện lúc này.");
+      const generatedContent = response.text || "Không thể tạo câu chuyện lúc này.";
+      
+      // Save to Supabase
+      const { error: saveError } = await supabase
+        .from('stories')
+        .insert([{ content: generatedContent, user_id: '6857068c-7cc5-45ce-8099-23f0e3264251' }]);
+
+      if (saveError) {
+        console.error("Save Story Error:", saveError);
+        showNotification("Đã tạo truyện nhưng không thể lưu vào kho lưu trữ!", true);
+      } else {
+        showNotification("Đã tạo và lưu câu chuyện mới!");
+        setLastStoryDate(new Date().toISOString());
+      }
+
+      setStory(generatedContent);
       setIsOpen(true);
     } catch (error) {
       console.error("AI Error:", error);
