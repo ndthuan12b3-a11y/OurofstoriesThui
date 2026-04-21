@@ -68,27 +68,28 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab,
       </aside>
 
       {/* Mobile Nav */}
-      <footer className="md:hidden fixed bottom-0 left-0 right-0 glassmorphism border-t border-white/30 p-2 z-50">
+      <footer className="md:hidden fixed bottom-6 left-4 right-4 bg-white/70 backdrop-blur-xl border border-white/40 p-3 z-[60] rounded-3xl soft-shadow">
         <nav className="flex justify-around items-center">
           {tabs.filter(t => t.show).map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex flex-col items-center gap-1 p-2 transition-colors",
-                activeTab === tab.id ? "text-primary" : "text-gray-400"
+                "flex flex-col items-center gap-1 p-2 transition-all active:scale-90",
+                activeTab === tab.id ? "text-primary scale-110" : "text-gray-400 opacity-60"
               )}
             >
-              <tab.icon size={20} />
-              <span className="text-[10px] font-bold">{tab.label}</span>
+              <tab.icon size={22} strokeWidth={activeTab === tab.id ? 3 : 2} />
+              <span className={cn("text-[8px] font-black uppercase tracking-widest", activeTab === tab.id ? "block" : "hidden")}>
+                {tab.id === 'home' ? 'Home' : tab.id === 'timeline' ? 'Moments' : 'Admin'}
+              </span>
             </button>
           ))}
           <button
             onClick={onLogout}
-            className="flex flex-col items-center gap-1 p-2 text-gray-400"
+            className="flex flex-col items-center gap-1 p-2 text-gray-400 opacity-60 active:scale-90"
           >
-            <LogOut size={20} />
-            <span className="text-[10px] font-bold">Thoát</span>
+            <LogOut size={22} />
           </button>
         </nav>
       </footer>

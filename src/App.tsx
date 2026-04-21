@@ -280,7 +280,7 @@ export default function App() {
           onLogout={handleLogout}
         />
 
-        <main className="flex-grow md:ml-16 p-4 md:p-12 pb-24 md:pb-12">
+        <main className="flex-grow md:ml-16 p-4 md:p-12 pb-32 md:pb-12">
           <div className="container mx-auto max-w-6xl">
             <AnimatePresence mode="wait">
               <motion.div
@@ -377,7 +377,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.5 }}
               onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-              className="fixed bottom-24 right-6 md:bottom-8 md:right-8 w-12 h-12 bg-white/80 backdrop-blur-md rounded-full shadow-xl border border-white/50 flex items-center justify-center text-primary z-[60] hover:scale-110 transition-transform"
+              className="fixed bottom-32 right-6 md:bottom-8 md:right-8 w-12 h-12 bg-white/80 backdrop-blur-md rounded-full shadow-xl border border-white/50 flex items-center justify-center text-primary z-[60] hover:scale-110 transition-transform"
             >
               <Plus className="rotate-45" size={24} />
             </motion.button>

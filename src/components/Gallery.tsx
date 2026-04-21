@@ -453,7 +453,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
                 </button>
                 
                 <div className="flex flex-col lg:flex-row h-full max-h-[90vh]">
-                  <div className="lg:w-3/4 bg-black flex items-center justify-center relative group">
+                  <div className="flex-grow lg:w-3/4 bg-black flex items-center justify-center relative group min-h-[50vh] lg:min-h-0">
                     <motion.img
                       key={selectedPhoto.id}
                       initial={{ opacity: 0 }}
@@ -463,28 +463,55 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
                       referrerPolicy="no-referrer"
                       className="max-w-full max-h-full object-contain"
                     />
+                    
+                    {/* Floating Mobile Nav Overlay */}
+                    <div className="absolute inset-x-0 bottom-0 p-4 flex justify-between items-center bg-gradient-to-t from-black/60 to-transparent lg:hidden">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const idx = photos.findIndex(p => p.id === selectedPhoto.id);
+                          if (idx > 0) setSelectedPhoto(photos[idx - 1]);
+                        }}
+                        disabled={photos.findIndex(p => p.id === selectedPhoto.id) === 0}
+                        className="p-3 bg-white/20 rounded-full text-white backdrop-blur-md disabled:opacity-20"
+                      >
+                        <ChevronLeft size={20} />
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const idx = photos.findIndex(p => p.id === selectedPhoto.id);
+                          if (idx < photos.length - 1) setSelectedPhoto(photos[idx + 1]);
+                        }}
+                        disabled={photos.findIndex(p => p.id === selectedPhoto.id) === photos.length - 1}
+                        className="p-3 bg-white/20 rounded-full text-white backdrop-blur-md disabled:opacity-20"
+                      >
+                        <ChevronRight size={20} />
+                      </button>
+                    </div>
+
                     <a 
                       href={selectedPhoto.photo_url} 
                       download 
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="absolute bottom-6 right-6 p-3 bg-white/20 hover:bg-white/40 text-white rounded-full backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute top-6 left-6 p-3 bg-white/20 hover:bg-white/40 text-white rounded-full backdrop-blur-md lg:opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <Download size={20} />
                     </a>
                   </div>
-                  <div className="lg:w-1/4 p-8 flex flex-col bg-gray-50/50 overflow-y-auto">
-                    <div className="mb-8">
+                  <div className="lg:w-1/4 p-6 lg:p-8 flex flex-col bg-gray-50/50 overflow-y-auto shrink-0">
+                    <div>
                       <div className="flex items-center gap-2 text-primary mb-3">
                         <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
                           <Info size={16} />
                         </div>
                         <span className="text-[10px] font-black uppercase tracking-widest">Chi tiết ảnh</span>
                       </div>
-                      <h2 className="text-2xl font-black text-gray-800 leading-tight mb-4">{selectedPhoto.description}</h2>
+                      <h2 className="text-xl lg:text-2xl font-black text-gray-800 leading-tight mb-4">{selectedPhoto.description}</h2>
                       
                       {selectedPhoto.tags && selectedPhoto.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2 mb-6">
                           {selectedPhoto.tags.map(tag => (
                             <span key={tag} className="px-3 py-1 bg-white border border-gray-100 text-gray-500 text-[10px] font-black rounded-full shadow-sm">
                               #{tag}
@@ -494,7 +521,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
                       )}
                     </div>
 
-                    <div className="mt-auto pt-8 border-t border-gray-100 space-y-6">
+                    <div className="lg:mt-auto pt-6 lg:pt-8 border-t border-gray-100 space-y-6">
                       <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-gray-50">
                           <Calendar size={20} className="text-primary" />
@@ -505,7 +532,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
                         </div>
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="hidden lg:grid grid-cols-2 gap-3">
                         <button 
                           onClick={() => {
                             const idx = photos.findIndex(p => p.id === selectedPhoto.id);
