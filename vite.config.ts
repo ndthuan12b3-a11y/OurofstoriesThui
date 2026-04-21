@@ -12,14 +12,18 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
+        injectRegister: 'auto',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg', 'icon-192.svg', 'icon-512.svg'],
         manifest: {
-          name: 'Our Love Story',
-          short_name: 'LoveStory',
+          name: 'Thúi House',
+          short_name: 'ThúiHouse',
           description: 'Hành trình kỷ niệm tình yêu của chúng mình',
           theme_color: '#ff4d6d',
           background_color: '#ffffff',
           display: 'standalone',
+          orientation: 'portrait',
+          scope: '/',
+          start_url: '/',
           icons: [
             {
               src: '/icon-192.svg',
@@ -28,10 +32,22 @@ export default defineConfig(({mode}) => {
               purpose: 'any maskable'
             },
             {
+              src: 'https://cdn-icons-png.flaticon.com/512/833/833472.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any'
+            },
+            {
               src: '/icon-512.svg',
               sizes: '512x512',
               type: 'image/svg+xml',
               purpose: 'any maskable'
+            },
+            {
+              src: 'https://cdn-icons-png.flaticon.com/512/833/833472.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any'
             }
           ]
         }

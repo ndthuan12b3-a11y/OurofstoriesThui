@@ -5,20 +5,29 @@ import { motion, AnimatePresence } from 'motion/react';
 export const PWAInstallPrompt: React.FC = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
+    // Check if it's iOS
+    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    setIsIOS(isIOSDevice);
+
     const handler = (e: any) => {
-      // Prevent Chrome 67 and earlier from automatically showing the prompt
       e.preventDefault();
-      // Stash the event so it can be triggered later.
       setDeferredPrompt(e);
-      // Show the install button
       setIsVisible(true);
     };
 
+    // For Android/Chrome
     window.addEventListener('beforeinstallprompt', handler);
 
-    // Check if app is already installed
+    // For iOS, we show it manually if not in standalone mode
+    if (isIOSDevice && !window.matchMedia('(display-mode: standalone)').matches) {
+      // Small delay to ensure it doesn't pop up immediately and annoy users
+      const timer = setTimeout(() => setIsVisible(true), 3000);
+      return () => clearTimeout(timer);
+    }
+
     if (window.matchMedia('(display-mode: standalone)').matches) {
       setIsVisible(false);
     }
@@ -27,21 +36,15 @@ export const PWAInstallPrompt: React.FC = () => {
   }, []);
 
   const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-
-    // Show the prompt
-    deferredPrompt.prompt();
-
-    // Wait for the user to respond to the prompt
-    const { outcome } = await deferredPrompt.userChoice;
-    
-    if (outcome === 'accepted') {
-      console.log('User accepted the PWA install prompt');
-    } else {
-      console.log('User dismissed the PWA install prompt');
+    if (isIOS) {
+      // iOS doesn't have a programmatic prompt, we show instructions
+      alert('Để cài đặt ứng dụng trên iPhone:\n1. Nhấn vào nút Gửi/Chia sẻ (hình ô vuông có mũi tên lên)\n2. Cuộn xuống và chọn "Thêm vào màn hình chính"\n3. Nhấn "Thêm" để hoàn tất.');
+      return;
     }
 
-    // We've used the prompt, and can't use it again, so clear it
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
     setDeferredPrompt(null);
     setIsVisible(false);
   };
