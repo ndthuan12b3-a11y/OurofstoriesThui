@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { 
@@ -8,6 +9,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { formatDate, cn } from '../lib/utils';
+import { getOptimizedImageUrl, getThumbnailUrl } from '../lib/imageUtils';
 import { AppConfig } from '../types';
 import { GallerySkeleton } from './Skeleton';
 import { Modal } from './Modal';
@@ -34,10 +36,10 @@ const PhotoItem = React.memo(({ photo, onClick }: { photo: Photo; onClick: (p: P
     className="group relative aspect-square bg-white rounded-2xl overflow-hidden soft-shadow cursor-pointer hover:-translate-y-1 transition-transform"
   >
     <img
-      src={photo.photo_url}
+      src={getThumbnailUrl(photo.photo_url)}
       alt={photo.description}
       loading="lazy"
-      referrerPolicy="strict-origin-when-cross-origin"
+      referrerPolicy="no-referrer"
       className="w-full h-full object-cover"
     />
     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
@@ -291,7 +293,7 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
               className="relative aspect-video"
             >
               <img
-                src={randomPhoto.photo_url}
+                src={getOptimizedImageUrl(randomPhoto.photo_url, 1200)}
                 alt="Random"
                 loading="eager"
                 referrerPolicy="no-referrer"
@@ -395,120 +397,152 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
       )}
 
       {/* Detail Modal */}
-      <AnimatePresence>
-        {selectedPhoto && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedPhoto(null)}
-              className="absolute inset-0 bg-black/95 backdrop-blur-xl"
-            />
-            
-            {/* Navigation Buttons */}
-            <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 flex justify-between pointer-events-none z-20">
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const idx = photos.findIndex(p => p.id === selectedPhoto.id);
-                  if (idx > 0) setSelectedPhoto(photos[idx - 1]);
-                }}
-                className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center backdrop-blur-md pointer-events-auto transition-all"
-              >
-                <ChevronLeft size={24} />
-              </button>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const idx = photos.findIndex(p => p.id === selectedPhoto.id);
-                  if (idx < photos.length - 1) setSelectedPhoto(photos[idx + 1]);
-                }}
-                className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center backdrop-blur-md pointer-events-auto transition-all"
-              >
-                <ChevronRight size={24} />
-              </button>
-            </div>
-
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="relative max-w-6xl w-full bg-white rounded-[2.5rem] overflow-hidden shadow-2xl z-10"
-            >
-              <button
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {selectedPhoto && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
                 onClick={() => setSelectedPhoto(null)}
-                className="absolute top-6 right-6 z-20 p-2 bg-black/20 hover:bg-black/40 text-white rounded-full backdrop-blur-md transition-colors"
-              >
-                <X size={24} />
-              </button>
+                className="absolute inset-0 bg-black/95 backdrop-blur-xl"
+              />
               
-              <div className="flex flex-col lg:flex-row h-full max-h-[90vh]">
-                <div className="lg:w-3/4 bg-black flex items-center justify-center relative group">
-                  <motion.img
-                    key={selectedPhoto.id}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    src={selectedPhoto.photo_url}
-                    alt={selectedPhoto.description}
-                    referrerPolicy="no-referrer"
-                    className="max-w-full max-h-full object-contain"
-                  />
-                  <a 
-                    href={selectedPhoto.photo_url} 
-                    download 
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="absolute bottom-6 right-6 p-3 bg-white/20 hover:bg-white/40 text-white rounded-full backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <Download size={20} />
-                  </a>
-                </div>
-                <div className="lg:w-1/4 p-8 flex flex-col bg-gray-50/50 overflow-y-auto">
-                  <div className="mb-8">
-                    <div className="flex items-center gap-2 text-primary mb-3">
-                      <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                        <Info size={16} />
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest">Chi tiết ảnh</span>
-                    </div>
-                    <h2 className="text-2xl font-black text-gray-800 leading-tight mb-4">{selectedPhoto.description}</h2>
-                    
-                    {selectedPhoto.tags && selectedPhoto.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {selectedPhoto.tags.map(tag => (
-                          <span key={tag} className="px-3 py-1 bg-white border border-gray-100 text-gray-500 text-[10px] font-black rounded-full shadow-sm">
-                            #{tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-auto pt-8 border-t border-gray-100 space-y-6">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-gray-50">
-                        <Calendar size={20} className="text-primary" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-300">Ngày lưu giữ</p>
-                        <p className="text-sm font-bold text-gray-700">{formatDate(selectedPhoto.created_at)}</p>
-                      </div>
-                    </div>
-                    
-                    <button 
-                      onClick={() => setSelectedPhoto(null)}
-                      className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-primary transition-colors soft-shadow"
-                    >
-                      Đóng lại
-                    </button>
-                  </div>
-                </div>
+              {/* Navigation Buttons */}
+              <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 flex justify-between pointer-events-none z-30">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const idx = photos.findIndex(p => p.id === selectedPhoto.id);
+                    if (idx > 0) setSelectedPhoto(photos[idx - 1]);
+                  }}
+                  className={cn(
+                    "w-12 h-12 rounded-full bg-white/20 hover:bg-primary text-white flex items-center justify-center backdrop-blur-md pointer-events-auto transition-all shadow-xl border border-white/30",
+                    photos.findIndex(p => p.id === selectedPhoto.id) === 0 && "opacity-0 pointer-events-none"
+                  )}
+                >
+                  <ChevronLeft size={28} strokeWidth={3} />
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const idx = photos.findIndex(p => p.id === selectedPhoto.id);
+                    if (idx < photos.length - 1) setSelectedPhoto(photos[idx + 1]);
+                  }}
+                  className={cn(
+                    "w-12 h-12 rounded-full bg-white/20 hover:bg-primary text-white flex items-center justify-center backdrop-blur-md pointer-events-auto transition-all shadow-xl border border-white/30",
+                    photos.findIndex(p => p.id === selectedPhoto.id) === photos.length - 1 && "opacity-0 pointer-events-none"
+                  )}
+                >
+                  <ChevronRight size={28} strokeWidth={3} />
+                </button>
               </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="relative max-w-6xl w-full bg-white rounded-[2.5rem] overflow-hidden shadow-2xl z-10"
+              >
+                <button
+                  onClick={() => setSelectedPhoto(null)}
+                  className="absolute top-6 right-6 z-20 p-2 bg-black/20 hover:bg-black/40 text-white rounded-full backdrop-blur-md transition-colors"
+                >
+                  <X size={24} />
+                </button>
+                
+                <div className="flex flex-col lg:flex-row h-full max-h-[90vh]">
+                  <div className="lg:w-3/4 bg-black flex items-center justify-center relative group">
+                    <motion.img
+                      key={selectedPhoto.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      src={getOptimizedImageUrl(selectedPhoto.photo_url, 1600)}
+                      alt={selectedPhoto.description}
+                      referrerPolicy="no-referrer"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                    <a 
+                      href={selectedPhoto.photo_url} 
+                      download 
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="absolute bottom-6 right-6 p-3 bg-white/20 hover:bg-white/40 text-white rounded-full backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Download size={20} />
+                    </a>
+                  </div>
+                  <div className="lg:w-1/4 p-8 flex flex-col bg-gray-50/50 overflow-y-auto">
+                    <div className="mb-8">
+                      <div className="flex items-center gap-2 text-primary mb-3">
+                        <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                          <Info size={16} />
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest">Chi tiết ảnh</span>
+                      </div>
+                      <h2 className="text-2xl font-black text-gray-800 leading-tight mb-4">{selectedPhoto.description}</h2>
+                      
+                      {selectedPhoto.tags && selectedPhoto.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {selectedPhoto.tags.map(tag => (
+                            <span key={tag} className="px-3 py-1 bg-white border border-gray-100 text-gray-500 text-[10px] font-black rounded-full shadow-sm">
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-auto pt-8 border-t border-gray-100 space-y-6">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-gray-50">
+                          <Calendar size={20} className="text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-300">Ngày lưu giữ</p>
+                          <p className="text-sm font-bold text-gray-700">{formatDate(selectedPhoto.created_at)}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <button 
+                          onClick={() => {
+                            const idx = photos.findIndex(p => p.id === selectedPhoto.id);
+                            if (idx > 0) setSelectedPhoto(photos[idx - 1]);
+                          }}
+                          disabled={photos.findIndex(p => p.id === selectedPhoto.id) === 0}
+                          className="py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          Ảnh trước
+                        </button>
+                        <button 
+                          onClick={() => {
+                            const idx = photos.findIndex(p => p.id === selectedPhoto.id);
+                            if (idx < photos.length - 1) setSelectedPhoto(photos[idx + 1]);
+                          }}
+                          disabled={photos.findIndex(p => p.id === selectedPhoto.id) === photos.length - 1}
+                          className="py-3 bg-primary text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-primary/80 transition-colors soft-shadow disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          Ảnh tiếp
+                        </button>
+                      </div>
+                      
+                      <button 
+                        onClick={() => setSelectedPhoto(null)}
+                        className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-primary transition-colors soft-shadow"
+                      >
+                        Đóng lại
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* Upload Modal */}
       <Modal

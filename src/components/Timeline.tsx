@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '../lib/supabase';
 import { formatDate, calculateDays, cn } from '../lib/utils';
+import { getOptimizedImageUrl } from '../lib/imageUtils';
 import { AppConfig } from '../types';
-import { Heart, Lock, Sparkles, Calendar, Camera, MapPin, X, Info, Plus, Upload, Image as ImageIcon, RefreshCw, ChevronRight, BookOpen } from 'lucide-react';
+import { 
+  Heart, Lock, Sparkles, Calendar, Camera, MapPin, X, Info, Plus, 
+  Upload, Image as ImageIcon, RefreshCw, ChevronRight, ChevronLeft, 
+  BookOpen, Download 
+} from 'lucide-react';
 import { TimelineSkeleton } from './Skeleton';
 import { Modal } from './Modal';
 import { showNotification } from '../lib/notifications';
@@ -51,7 +57,7 @@ const EventItem = React.memo(({ event, index, onClick }: { event: Event; index: 
       {/* Small Image */}
       <div className="w-full sm:w-32 h-32 rounded-2xl overflow-hidden shrink-0 shadow-inner bg-gray-50">
         <img
-          src={event.photo_url}
+          src={getOptimizedImageUrl(event.photo_url, 400)}
           alt={event.title}
           loading="lazy"
           referrerPolicy="no-referrer"
@@ -82,7 +88,12 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
   const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [uploadForm, setUploadForm] = useState({ title: '', date: '', description: '', photoFile: null as File | null });
+  const [uploadForm, setUploadForm] = useState({ 
+    title: '', 
+    date: '', 
+    description: '', 
+    photoFile: null as File | null 
+  });
   const [uploading, setUploading] = useState(false);
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
   const [stories, setStories] = useState<any[]>([]);
@@ -287,7 +298,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
         >
           <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] overflow-hidden border-4 border-white shadow-xl rotate-3 hover:rotate-0 transition-transform duration-500">
             <img
-              src={config.avatar_url || "https://placehold.co/200x200/fcc4d6/333?text=Love"}
+              src={getOptimizedImageUrl(config.avatar_url || "https://placehold.co/200x200/fcc4d6/333?text=Love", 400)}
               alt="Couple"
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
@@ -443,60 +454,152 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
       </Modal>
 
       {/* Event Detail Modal */}
-      <Modal
-        isOpen={!!selectedEvent}
-        onClose={() => setSelectedEvent(null)}
-        title="Chi Tiết Kỷ Niệm"
-        className="max-w-2xl p-0 overflow-hidden"
-      >
-        {selectedEvent && (
-          <div className="flex flex-col">
-            <div className="aspect-video w-full overflow-hidden bg-gray-100 relative group">
-              <img 
-                src={selectedEvent.photo_url} 
-                alt={selectedEvent.title}
-                className="w-full h-full object-contain"
-                referrerPolicy="no-referrer"
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {selectedEvent && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedEvent(null)}
+                className="absolute inset-0 bg-black/95 backdrop-blur-xl"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            <div className="p-8 space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-rose-50 rounded-2xl flex items-center justify-center text-rose-400 shadow-sm">
-                    <Heart size={24} fill="currentColor" />
-                  </div>
-                  <h3 className="text-3xl font-black text-gray-800 tracking-tight">{selectedEvent.title}</h3>
-                </div>
-                <div className="inline-flex items-center gap-2 px-4 py-2 bg-gray-50 text-gray-500 text-xs font-bold rounded-xl border border-gray-100">
-                  <Calendar size={14} />
-                  <span>{formatDate(selectedEvent.date)}</span>
-                </div>
-              </div>
               
-              <div className="relative">
-                <div className="absolute -left-4 top-0 bottom-0 w-1 bg-rose-100 rounded-full" />
-                <p className="text-gray-600 leading-relaxed text-lg pl-4 italic">
-                  "{selectedEvent.description}"
-                </p>
-              </div>
-
-              <div className="pt-6 border-t border-gray-50 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-gray-400 text-xs font-bold uppercase tracking-widest">
-                  <Sparkles size={14} className="text-yellow-400" />
-                  <span>Khoảnh khắc đáng nhớ</span>
-                </div>
+              {/* Navigation Buttons */}
+              <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 flex justify-between pointer-events-none z-30">
                 <button 
-                  onClick={() => setSelectedEvent(null)}
-                  className="text-primary font-bold text-sm hover:underline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const idx = events.findIndex(p => p.id === selectedEvent.id);
+                    if (idx > 0) setSelectedEvent(events[idx - 1]);
+                  }}
+                  className={cn(
+                    "w-12 h-12 rounded-full bg-white/20 hover:bg-rose-400 text-white flex items-center justify-center backdrop-blur-md pointer-events-auto transition-all shadow-xl border border-white/30",
+                    events.findIndex(p => p.id === selectedEvent.id) === 0 && "opacity-0 pointer-events-none"
+                  )}
                 >
-                  Đóng lại
+                  <ChevronLeft size={28} strokeWidth={3} />
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const idx = events.findIndex(p => p.id === selectedEvent.id);
+                    if (idx < events.length - 1) setSelectedEvent(events[idx + 1]);
+                  }}
+                  className={cn(
+                    "w-12 h-12 rounded-full bg-white/20 hover:bg-rose-400 text-white flex items-center justify-center backdrop-blur-md pointer-events-auto transition-all shadow-xl border border-white/30",
+                    events.findIndex(p => p.id === selectedEvent.id) === events.length - 1 && "opacity-0 pointer-events-none"
+                  )}
+                >
+                  <ChevronRight size={28} strokeWidth={3} />
                 </button>
               </div>
+
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="relative max-w-6xl w-full bg-white rounded-[2.5rem] overflow-hidden shadow-2xl z-10"
+              >
+                <button
+                  onClick={() => setSelectedEvent(null)}
+                  className="absolute top-6 right-6 z-20 p-2 bg-black/20 hover:bg-black/40 text-white rounded-full backdrop-blur-md transition-colors"
+                >
+                  <X size={24} />
+                </button>
+                
+                <div className="flex flex-col lg:flex-row h-full max-h-[90vh]">
+                  <div className="lg:w-3/4 bg-black flex items-center justify-center relative group">
+                    <motion.img
+                      key={selectedEvent.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      src={getOptimizedImageUrl(selectedEvent.photo_url, 1600)}
+                      alt={selectedEvent.title}
+                      referrerPolicy="no-referrer"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                    <a 
+                      href={selectedEvent.photo_url} 
+                      download 
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="absolute bottom-6 right-6 p-3 bg-white/20 hover:bg-white/40 text-white rounded-full backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Download size={20} />
+                    </a>
+                  </div>
+                  <div className="lg:w-1/4 p-8 flex flex-col bg-gray-50/50 overflow-y-auto">
+                    <div className="mb-8">
+                      <div className="flex items-center gap-2 text-rose-400 mb-3">
+                        <div className="w-8 h-8 rounded-xl bg-rose-400/10 flex items-center justify-center">
+                          <Heart size={16} fill="currentColor" />
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest">Kỷ niệm tình yêu</span>
+                      </div>
+                      <h2 className="text-2xl font-black text-gray-800 leading-tight mb-4">{selectedEvent.title}</h2>
+                      <p className="text-gray-600 leading-relaxed italic border-l-2 border-rose-100 pl-4 py-1">
+                        "{selectedEvent.description}"
+                      </p>
+                    </div>
+
+                    <div className="mt-auto pt-8 border-t border-gray-100 space-y-6">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-gray-50">
+                          <Calendar size={20} className="text-rose-400" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-300">Ngày diễn ra</p>
+                          <p className="text-sm font-bold text-gray-700">{formatDate(selectedEvent.date)}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <button 
+                          onClick={() => {
+                            const idx = events.findIndex(p => p.id === selectedEvent.id);
+                            if (idx > 0) setSelectedEvent(events[idx - 1]);
+                          }}
+                          disabled={events.findIndex(p => p.id === selectedEvent.id) === 0}
+                          className="py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          Ảnh trước
+                        </button>
+                        <button 
+                          onClick={() => {
+                            const idx = events.findIndex(p => p.id === selectedEvent.id);
+                            if (idx < events.length - 1) setSelectedEvent(events[idx + 1]);
+                          }}
+                          disabled={events.findIndex(p => p.id === selectedEvent.id) === events.length - 1}
+                          className="py-3 bg-rose-400 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-rose-500 transition-colors soft-shadow disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          Ảnh tiếp
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        <div className="w-8 h-8 rounded-full bg-yellow-50 flex items-center justify-center text-yellow-400">
+                          <Sparkles size={14} />
+                        </div>
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Khoảnh khắc đáng nhớ</span>
+                      </div>
+                      
+                      <button 
+                        onClick={() => setSelectedEvent(null)}
+                        className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-rose-400 transition-colors soft-shadow"
+                      >
+                        Đóng lại
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
             </div>
-          </div>
-        )}
-      </Modal>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* Upload Modal */}
       <Modal
