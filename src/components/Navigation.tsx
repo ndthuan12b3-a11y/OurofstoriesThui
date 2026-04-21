@@ -15,7 +15,19 @@ interface NavigationProps {
 export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab, userRole, onLogout }) => {
   const { isOtherOnline } = usePresence();
   const [hidden, setHidden] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const { scrollY } = useScroll();
+
+  useEffect(() => {
+    const checkModal = () => {
+      setModalOpen(document.body.style.overflow === 'hidden');
+    };
+
+    const observer = new MutationObserver(checkModal);
+    observer.observe(document.body, { attributes: true, attributeFilter: ['style'] });
+    
+    return () => observer.disconnect();
+  }, []);
 
   useMotionValueEvent(scrollY, "change", (latest) => {
     const previous = scrollY.getPrevious() ?? 0;
@@ -35,7 +47,10 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab,
   return (
     <>
       {/* Desktop Nav */}
-      <aside className="hidden md:flex fixed left-0 top-0 h-screen w-16 hover:w-56 bg-white/80 backdrop-blur-md border-r border-gray-100 flex-col items-center py-8 transition-all duration-300 z-50 group">
+      <aside className={cn(
+        "hidden md:flex fixed left-0 top-0 h-screen w-16 hover:w-56 bg-white/80 backdrop-blur-md border-r border-gray-100 flex-col items-center py-8 transition-all duration-300 z-50 group",
+        modalOpen && "opacity-0 pointer-events-none"
+      )}>
         <div className="mb-12 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap flex flex-col items-center">
           <h1 className="text-xl font-black text-primary">MENU</h1>
           <div className="flex items-center gap-2 mt-2">
@@ -86,7 +101,7 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab,
           visible: { y: 0, opacity: 1 },
           hidden: { y: "150%", opacity: 0 },
         }}
-        animate={hidden ? "hidden" : "visible"}
+        animate={hidden || modalOpen ? "hidden" : "visible"}
         transition={{ duration: 0.35, ease: "easeInOut" }}
         className="md:hidden fixed bottom-6 left-4 right-4 bg-white/70 backdrop-blur-xl border border-white/40 p-3 z-[60] rounded-3xl soft-shadow"
       >
