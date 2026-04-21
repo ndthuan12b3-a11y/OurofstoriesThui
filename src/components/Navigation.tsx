@@ -1,5 +1,6 @@
-import React from 'react';
-import { Home, History, Settings, LogOut, Heart } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Home, History, Settings, LogOut } from 'lucide-react';
+import { motion, useScroll, useMotionValueEvent } from 'motion/react';
 import { cn } from '../lib/utils';
 import { UserRole } from '../types';
 import { usePresence } from '../lib/PresenceContext';
@@ -13,6 +14,18 @@ interface NavigationProps {
 
 export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab, userRole, onLogout }) => {
   const { isOtherOnline } = usePresence();
+  const [hidden, setHidden] = useState(false);
+  const { scrollY } = useScroll();
+
+  useMotionValueEvent(scrollY, "change", (latest) => {
+    const previous = scrollY.getPrevious() ?? 0;
+    if (latest > previous && latest > 150) {
+      setHidden(true);
+    } else {
+      setHidden(false);
+    }
+  });
+
   const tabs = [
     { id: 'home', label: 'Trang Chính', icon: Home, show: true },
     { id: 'timeline', label: 'Dòng Thời Gian', icon: History, show: true },
@@ -68,7 +81,15 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab,
       </aside>
 
       {/* Mobile Nav */}
-      <footer className="md:hidden fixed bottom-6 left-4 right-4 bg-white/70 backdrop-blur-xl border border-white/40 p-3 z-[60] rounded-3xl soft-shadow">
+      <motion.footer 
+        variants={{
+          visible: { y: 0, opacity: 1 },
+          hidden: { y: "150%", opacity: 0 },
+        }}
+        animate={hidden ? "hidden" : "visible"}
+        transition={{ duration: 0.35, ease: "easeInOut" }}
+        className="md:hidden fixed bottom-6 left-4 right-4 bg-white/70 backdrop-blur-xl border border-white/40 p-3 z-[60] rounded-3xl soft-shadow"
+      >
         <nav className="flex justify-around items-center">
           {tabs.filter(t => t.show).map((tab) => (
             <button
@@ -92,7 +113,7 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab,
             <LogOut size={22} />
           </button>
         </nav>
-      </footer>
+      </motion.footer>
     </>
   );
 };
