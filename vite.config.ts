@@ -39,7 +39,7 @@ export default defineConfig(({mode}) => {
             },
           ],
         },
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg', 'icon-192.svg', 'icon-512.svg'],
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg', 'icon-192.svg', 'icon-512.svg', 'icon-192.png', 'icon-512.png'],
         manifest: {
           id: '/',
           name: 'Thúi House',
@@ -50,16 +50,16 @@ export default defineConfig(({mode}) => {
           display: 'standalone',
           orientation: 'portrait',
           scope: '/',
-          start_url: '/?standalone=true',
+          start_url: '/',
           icons: [
             {
               src: '/icon-192.svg',
               sizes: '192x192',
               type: 'image/svg+xml',
-              purpose: 'any maskable'
+              purpose: 'maskable'
             },
             {
-              src: 'https://cdn-icons-png.flaticon.com/512/833/833472.png',
+              src: '/icon-192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any'
@@ -68,10 +68,10 @@ export default defineConfig(({mode}) => {
               src: '/icon-512.svg',
               sizes: '512x512',
               type: 'image/svg+xml',
-              purpose: 'any maskable'
+              purpose: 'maskable'
             },
             {
-              src: 'https://cdn-icons-png.flaticon.com/512/833/833472.png',
+              src: '/icon-512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any'
