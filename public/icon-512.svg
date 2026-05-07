@@ -1,4 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="100" fill="#fff5f5"/>
-  <path d="M256 417.8L232.8 396.7C150.4 321.8 96 272.5 96 211.9 96 162.7 134.72 124 184 124c27.84 0 54.56 12.96 72 33.44 17.44-20.48 44.16-33.44 72-33.44 49.28 0 88 38.72 88 87.9 0 60.6-54.4 109.9-136.8 184.84L256 417.8z" fill="#ff4d6d"/>
+  <defs>
+    <linearGradient id="heartGrad512" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff4d6d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ff758c;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="110" fill="#fff5f5"/>
+  <path d="M256 426.6c-6.8 0-13.6-2.7-18.6-8.2L93.4 274.4c-38.1-38.1-38.1-100 0-138.1s100-38.1 138.1 0L256 161.2l24.5-24.5c38.1-38.1 100-38.1 138.1 0s38.1 100 0 138.1L274.6 418.4c-5 5.5-11.8 8.2-18.6 8.2z" fill="url(#heartGrad512)"/>
 </svg>
