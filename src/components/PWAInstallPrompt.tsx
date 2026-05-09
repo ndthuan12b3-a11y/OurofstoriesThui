@@ -15,7 +15,12 @@ export const PWAInstallPrompt: React.FC = () => {
     const handler = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      setIsVisible(true);
+      
+      // Only show if not previously dismissed
+      const isDismissed = localStorage.getItem('pwa_prompt_dismissed');
+      if (!isDismissed) {
+        setIsVisible(true);
+      }
     };
 
     // For Android/Chrome
@@ -23,9 +28,12 @@ export const PWAInstallPrompt: React.FC = () => {
 
     // For iOS, we show it manually if not in standalone mode
     if (isIOSDevice && !window.matchMedia('(display-mode: standalone)').matches) {
-      // Small delay to ensure it doesn't pop up immediately and annoy users
-      const timer = setTimeout(() => setIsVisible(true), 3000);
-      return () => clearTimeout(timer);
+      const isDismissed = localStorage.getItem('pwa_prompt_dismissed');
+      if (!isDismissed) {
+        // Small delay to ensure it doesn't pop up immediately and annoy users
+        const timer = setTimeout(() => setIsVisible(true), 3000);
+        return () => clearTimeout(timer);
+      }
     }
 
     if (window.matchMedia('(display-mode: standalone)').matches) {
@@ -35,10 +43,16 @@ export const PWAInstallPrompt: React.FC = () => {
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
+  const dismissPrompt = () => {
+    localStorage.setItem('pwa_prompt_dismissed', 'true');
+    setIsVisible(false);
+  };
+
   const handleInstallClick = async () => {
     if (isIOS) {
       // iOS doesn't have a programmatic prompt, we show instructions
       alert('Để cài đặt ứng dụng trên iPhone:\n1. Nhấn vào nút Gửi/Chia sẻ (hình ô vuông có mũi tên lên)\n2. Cuộn xuống và chọn "Thêm vào màn hình chính"\n3. Nhấn "Thêm" để hoàn tất.');
+      dismissPrompt();
       return;
     }
 
@@ -46,7 +60,7 @@ export const PWAInstallPrompt: React.FC = () => {
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
     setDeferredPrompt(null);
-    setIsVisible(false);
+    dismissPrompt();
   };
 
   if (!isVisible) return null;
@@ -78,7 +92,7 @@ export const PWAInstallPrompt: React.FC = () => {
               Cài đặt
             </button>
             <button
-              onClick={() => setIsVisible(false)}
+              onClick={dismissPrompt}
               className="p-2 text-gray-300 hover:text-gray-500 rounded-full transition-colors"
             >
               <X size={20} />
