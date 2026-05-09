@@ -28,6 +28,7 @@ const Timeline = lazy(() => import('./components/Timeline').then(m => ({ default
 const Management = lazy(() => import('./components/Management').then(m => ({ default: m.Management })));
 const LoveMoodTracker = lazy(() => import('./components/LoveMoodTracker').then(m => ({ default: m.LoveMoodTracker })));
 const StoryMap = lazy(() => import('./components/StoryMap').then(m => ({ default: m.StoryMap })));
+import { LocationSharing } from './components/LocationSharing';
 
 const PRIMARY_CONFIG_ID = '6857068c-7cc5-45ce-8099-23f0e3264251';
 
@@ -325,6 +326,7 @@ export default function App() {
   return (
     <PresenceProvider userId={session?.user?.id}>
       <div className="min-h-screen flex flex-col md:flex-row">
+        {session?.user?.id && <LocationSharing userId={session.user.id} />}
         <Toaster position="top-center" />
         <MemoriesNotification />
         <BackgroundMusicPlayer active={true} />

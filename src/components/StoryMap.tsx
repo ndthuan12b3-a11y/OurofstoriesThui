@@ -118,25 +118,31 @@ const InvalidateSizeHandler = ({ trigger }: { trigger: any }) => {
 const MapController = ({ 
   userLocation, 
   otherLocation, 
-  mapItems 
+  mapItems,
+  refocusKey
 }: { 
   userLocation: [number, number] | null, 
   otherLocation: [number, number] | null,
-  mapItems: any[]
+  mapItems: any[],
+  refocusKey: number
 }) => {
   const map = useMap();
+  const hasFittedRef = React.useRef(false);
   
   React.useEffect(() => {
-    // Only fit bounds if we don't have a specific event selected for flyTo
+    // Only auto-fit bounds on initial load when locations are available, 
+    // or when refocusKey changes (manual button press)
+    const isManual = refocusKey > 0 && refocusKey !== (map as any)._lastRefocusKey;
+    if (hasFittedRef.current && !isManual) return;
+
     const points: [number, number][] = [];
     if (userLocation && isValidCoords(userLocation)) points.push(userLocation);
     if (otherLocation && isValidCoords(otherLocation)) points.push(otherLocation);
     
-    // Fallback to map items if no live locations
     if (points.length === 0 && mapItems.length > 0) {
       mapItems.forEach(item => {
         if (item.location?.lat && item.location?.lng) {
-          const p: [number, number] = [item.location.lat, item.location.lng];
+          const p: [number, number] = [Number(item.location.lat), Number(item.location.lng)];
           if (isValidCoords(p)) {
             points.push(p);
           }
@@ -149,12 +155,14 @@ const MapController = ({
         const bounds = L.latLngBounds(points);
         if (bounds.isValid()) {
           map.fitBounds(bounds, { padding: [100, 100], maxZoom: 15 });
+          hasFittedRef.current = true;
+          if (isManual) (map as any)._lastRefocusKey = refocusKey;
         }
       } catch (e) {
         console.error("Error fitting bounds:", e);
       }
     }
-  }, [userLocation, otherLocation, map, mapItems]);
+  }, [userLocation, otherLocation, map, mapItems, refocusKey]);
 
   return null;
 };
@@ -171,6 +179,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   const [otherAddress, setOtherAddress] = useState<string>('');
   const [otherLastUpdate, setOtherLastUpdate] = useState<string>('');
   const [otherProfile, setOtherProfile] = useState<{ avatar_url: string | null, name?: string } | null>(null);
+  const [refocusKey, setRefocusKey] = useState(0);
   const lastUpdateRef = React.useRef<number>(0);
   const lastPosRef = React.useRef<[number, number] | null>(null);
 
@@ -249,39 +258,57 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   React.useEffect(() => {
     if (!userId || !supabase) return;
 
-    // 1. Setup Realtime Listener for the OTHER person
+    // 1. Setup Realtime Listener for locations
     const channel = supabase
       .channel('location-updates')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'locations' },
+        { event: '*', schema: 'public', table: 'locations' },
         (payload: any) => {
           const newLoc = payload.new;
-          if (newLoc && newLoc.user_id !== userId) {
-            setOtherLocation([newLoc.lat, newLoc.lng]);
+          if (!newLoc) return;
+          
+          // Cast values to Number explicitly
+          const coords: [number, number] = [Number(newLoc.lat), Number(newLoc.lng)];
+          
+          if (newLoc.user_id === userId) {
+            setUserLocation(coords);
+            getAddress(coords[0], coords[1], setUserAddress);
+          } else {
+            setOtherLocation(coords);
             setOtherLastUpdate(newLoc.updated_at);
-            getAddress(newLoc.lat, newLoc.lng, setOtherAddress);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'locations' },
-        (payload: any) => {
-          const newLoc = payload.new;
-          if (newLoc && newLoc.user_id !== userId) {
-            setOtherLocation([newLoc.lat, newLoc.lng]);
-            setOtherLastUpdate(newLoc.updated_at);
-            getAddress(newLoc.lat, newLoc.lng, setOtherAddress);
+            getAddress(coords[0], coords[1], setOtherAddress);
           }
         }
       )
       .subscribe();
 
-    // 2. Fetch initial location of other person
-    const fetchOtherLocation = async () => {
+    // 2. Fetch initial locations
+    const fetchLocations = async () => {
       try {
-        const { data, error } = await supabase
+        // Fetch MY location
+        const { data: myData } = await supabase
+          .from('locations')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle();
+        
+        if (myData) {
+          const coords: [number, number] = [Number(myData.lat), Number(myData.lng)];
+          setUserLocation(coords);
+          getAddress(coords[0], coords[1], setUserAddress);
+        } else {
+          // Fallback if no specific record yet: try browser geolocation once
+          if ("geolocation" in navigator) {
+            navigator.geolocation.getCurrentPosition((pos) => {
+              setUserLocation([pos.coords.latitude, pos.coords.longitude]);
+              getAddress(pos.coords.latitude, pos.coords.longitude, setUserAddress);
+            }, undefined, { enableHighAccuracy: false });
+          }
+        }
+
+        // Fetch OTHER person location
+        const { data: others, error } = await supabase
           .from('locations')
           .select('*')
           .neq('user_id', userId)
@@ -290,19 +317,19 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
         
         if (error) {
           console.error("Fetch initial location error:", error);
-          return;
         }
         
-        if (data && data.length > 0) {
-          setOtherLocation([data[0].lat, data[0].lng]);
-          setOtherLastUpdate(data[0].updated_at || '');
-          getAddress(data[0].lat, data[0].lng, setOtherAddress);
+        if (others && others.length > 0) {
+          const coords: [number, number] = [Number(others[0].lat), Number(others[0].lng)];
+          setOtherLocation(coords);
+          setOtherLastUpdate(others[0].updated_at || '');
+          getAddress(coords[0], coords[1], setOtherAddress);
 
           // Fetch other user's profile avatar
           const { data: profile } = await supabase
             .from('profiles')
             .select('avatar_url')
-            .eq('user_id', data[0].user_id)
+            .eq('user_id', others[0].user_id)
             .maybeSingle();
           
           if (profile) {
@@ -310,127 +337,20 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           }
         }
       } catch (err) {
-        console.error("Fetch location failed:", err);
+        console.error("Fetch locations failed:", err);
       }
     };
-    fetchOtherLocation();
+    fetchLocations();
 
-    // 2b. Handle Visibility Change (Tab focus/blur)
+    // 2b. Handle Visibility Change
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        fetchOtherLocation();
-        // Force an update on re-open
-        if ("geolocation" in navigator) {
-          navigator.geolocation.getCurrentPosition((pos) => {
-             const { latitude, longitude } = pos.coords;
-             supabase.from('locations').upsert({
-               user_id: userId,
-               lat: latitude,
-               lng: longitude,
-               updated_at: new Date().toISOString()
-             });
-             getAddress(latitude, longitude, setUserAddress);
-          });
-        }
+        fetchLocations();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // 3. Watch current position
-    let watchId: number;
-    
-    const updateLocationInDB = async (lat: number, lng: number) => {
-      try {
-        const timestamp = new Date().toISOString();
-        
-        // Luôn thử upsert trước
-        const { error: upsertError } = await supabase.from('locations').upsert({
-          user_id: userId,
-          lat: lat,
-          lng: lng,
-          updated_at: timestamp
-        }, { onConflict: 'user_id' });
-        
-        // Nếu lỗi 42P10 (thiếu unique constraint), chuyển sang logic Update/Insert thủ công
-        if (upsertError && upsertError.code === '42P10') {
-          const { data: existing } = await supabase
-            .from('locations')
-            .select('user_id')
-            .eq('user_id', userId)
-            .maybeSingle();
-
-          if (existing) {
-            await supabase
-              .from('locations')
-              .update({ lat, lng, updated_at: timestamp })
-              .eq('user_id', userId);
-          } else {
-            await supabase
-              .from('locations')
-              .insert({ user_id: userId, lat, lng, updated_at: timestamp });
-          }
-        } else if (upsertError) {
-          console.error("Error updating location in DB:", upsertError);
-          if (upsertError.code === '42P01') {
-            showNotification("Cơ sở dữ liệu Map chưa được khởi tạo. Vui lòng chạy SQL fix.", true);
-          }
-        }
-      } catch (err) {
-        console.error("Critical error updating location:", err);
-      }
-    };
-
-    const fetchLocationByIP = async () => {
-      try {
-        const response = await fetch('https://ipapi.co/json/');
-        const data = await response.json();
-        if (data.latitude && data.longitude) {
-          setUserLocation([data.latitude, data.longitude]);
-          updateLocationInDB(data.latitude, data.longitude);
-          getAddress(data.latitude, data.longitude, setUserAddress);
-        }
-      } catch (err) {
-        console.error("IP Location Fallback failed:", err);
-      }
-    };
-
-    if ("geolocation" in navigator) {
-      watchId = navigator.geolocation.watchPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          const now = Date.now();
-          setUserLocation([latitude, longitude]);
-
-          // Throttling: Only update DB every 10s or if moved > 5m
-          const shouldUpdate = () => {
-            if (!lastPosRef.current) return true;
-            if (now - lastUpdateRef.current > 10000) return true;
-            
-            // Basic distance check (approx)
-            const dLat = Math.abs(latitude - lastPosRef.current[0]);
-            const dLng = Math.abs(longitude - lastPosRef.current[1]);
-            return dLat > 0.00005 || dLng > 0.00005; // ~5 meters
-          };
-
-          if (shouldUpdate()) {
-            lastUpdateRef.current = now;
-            lastPosRef.current = [latitude, longitude];
-            updateLocationInDB(latitude, longitude);
-            getAddress(latitude, longitude, setUserAddress);
-          }
-        },
-        (error) => {
-          console.warn("Geolocation error, attempting IP fallback:", error);
-          fetchLocationByIP();
-        },
-        { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 }
-      );
-    } else {
-      fetchLocationByIP();
-    }
-
     return () => {
-      if (watchId) navigator.geolocation.clearWatch(watchId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       supabase.removeChannel(channel);
     };
@@ -582,19 +502,6 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
               <List size={20} />
               <span className="text-xs font-bold font-sans">Kỷ niệm</span>
             </motion.button>
-
-            <div className="bg-white/70 backdrop-blur-md px-5 py-3 rounded-3xl border border-white/50 shadow-lg flex items-center gap-3">
-              <div className="w-8 h-8 bg-rose-400/10 rounded-xl flex items-center justify-center text-rose-400 relative">
-                <NavIcon size={16} />
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white animate-pulse"></span>
-              </div>
-              <div className="hidden sm:block">
-                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Live Tracking</h3>
-                <p className="text-xs font-bold text-gray-800 leading-none">
-                  {distance ? `Cách nhau ${distance} km` : (otherLocation ? 'Cùng nhau ❤️' : 'Đang hoạt động')}
-                </p>
-              </div>
-            </div>
           </div>
 
           <div className="flex gap-2 pointer-events-auto">
@@ -630,6 +537,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
             userLocation={userLocation} 
             otherLocation={otherLocation} 
             mapItems={mapItems} 
+            refocusKey={refocusKey}
           />
 
           <InvalidateSizeHandler trigger={showList || isFullscreen} />
