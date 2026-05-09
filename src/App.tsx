@@ -4,7 +4,13 @@ import { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from './lib/supabase';
 import { UserRole, AppConfig } from './types';
-import { Navigation } from './components/Navigation';
+
+interface UserProfile {
+  id: string;
+  avatar_url: string | null;
+}
+
+const Navigation = lazy(() => import('./components/Navigation').then(m => ({ default: m.Navigation })));
 import { Auth } from './components/Auth';
 import { Modal } from './components/Modal';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
@@ -43,6 +49,7 @@ export default function App() {
   const [loadingRole, setLoadingRole] = useState(true);
   const [activeTab, setActiveTab] = useState('home');
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isManagerAuthenticated, setIsManagerAuthenticated] = useState(false);
   const [passcodeModalOpen, setPasscodeModalOpen] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -96,7 +103,10 @@ export default function App() {
         setLoadingRole(false);
       } else {
         setSession(session);
-        if (session) await fetchUserRole(session.user.id);
+        if (session) {
+          await fetchUserRole(session.user.id);
+          await fetchUserProfile(session.user.id);
+        }
         else setLoadingRole(false);
       }
     };
@@ -108,6 +118,7 @@ export default function App() {
       if (session) {
         // Chỉ hiện loading nếu chưa có role, còn đã có thì chạy ngầm
         fetchUserRole(session.user.id, userRole === 'none');
+        fetchUserProfile(session.user.id);
       } else {
         setUserRole('none');
         setLoadingRole(false);
@@ -158,6 +169,25 @@ export default function App() {
       (window as any).userRole = 'none';
     } finally {
       if (showLoading) setLoadingRole(false);
+    }
+  };
+
+  const fetchUserProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('config')
+        .select('id, avatar_url')
+        .eq('user_id', userId)
+        .maybeSingle();
+      
+      if (data) {
+        setUserProfile({ id: data.id, avatar_url: data.avatar_url });
+      } else {
+        // Nếu chưa có profile riêng, tạo bản ghi mặc định hoặc để null
+        setUserProfile({ id: userId, avatar_url: null });
+      }
+    } catch (error) {
+      console.error("Lỗi khi tải profile:", error);
     }
   };
 
@@ -299,6 +329,7 @@ export default function App() {
           setActiveTab={handleTabChange} 
           userRole={userRole}
           onLogout={handleLogout}
+          userProfile={userProfile}
         />
 
         <main className="flex-grow md:ml-16 p-4 md:p-12 pb-32 md:pb-12">
@@ -329,7 +360,12 @@ export default function App() {
                   )}
                   {activeTab === 'map' && (
                     <div id="map-container" className="animate-fadeIn">
-                      <StoryMap events={events} config={config} userId={session.user.id} />
+                      <StoryMap 
+                        events={events} 
+                        config={config} 
+                        userId={session?.user?.id} 
+                        userProfile={userProfile} 
+                      />
                     </div>
                   )}
                   {activeTab === 'management' && (userRole === 'admin' || isManagerAuthenticated) && (
@@ -337,7 +373,9 @@ export default function App() {
                       userRole={userRole} 
                       config={config} 
                       onConfigUpdate={fetchConfig} 
-                      userId={session.user.id}
+                      userId={session?.user?.id}
+                      userProfile={userProfile}
+                      onProfileUpdate={() => fetchUserProfile(session?.user?.id)}
                     />
                   )}
                   {activeTab === 'management' && userRole === 'none' && !isManagerAuthenticated && (

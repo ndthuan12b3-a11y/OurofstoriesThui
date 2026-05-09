@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import { UserRole, AppConfig } from '../types';
 import { 
@@ -93,11 +94,15 @@ interface ManagementProps {
   config: AppConfig;
   onConfigUpdate: () => void;
   userId: string;
+  userProfile?: { id: string, avatar_url: string | null } | null;
+  onProfileUpdate?: () => void;
 }
 
 const PRIMARY_CONFIG_ID = '6857068c-7cc5-45ce-8099-23f0e3264251';
 
-export const Management: React.FC<ManagementProps> = ({ userRole, config, onConfigUpdate, userId }) => {
+export const Management: React.FC<ManagementProps> = ({ 
+  userRole, config, onConfigUpdate, userId, userProfile, onProfileUpdate 
+}) => {
   const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'config' | 'events' | 'gallery' | 'music' | 'stories' | 'users'>('dashboard');
   
   // Core Logic helpers
@@ -138,6 +143,47 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
   });
   const [photoForm, setPhotoForm] = useState({ description: '', tags: '', photoFile: null as File | null });
   const [musicForm, setMusicForm] = useState({ title: '', musicFile: null as File | null });
+  const [personalAvatarFile, setPersonalAvatarFile] = useState<File | null>(null);
+
+  const handlePersonalProfileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userId) return;
+    
+    setLoading(true);
+    try {
+      let avatarUrl = userProfile?.avatar_url;
+      if (personalAvatarFile) {
+        const url = await handleFileUpload(personalAvatarFile, 'profiles');
+        if (url) avatarUrl = url;
+      }
+
+      // Upsert into config table for this specific user
+      const { error } = await supabase.from('config').upsert({
+        user_id: userId,
+        avatar_url: avatarUrl,
+        // Cần đảm bảo các trường required khác nếu có, nhưng thường là default if not present
+        // Tuy nhiên config table có nhiều trường. Ta chỉ update những gì ta có.
+        // Để an toàn, ta dùng select rồi update hoặc upsert subset.
+        start_date: config.start_date,
+        name_male: config.name_male,
+        name_female: config.name_female,
+        primary_color: config.primary_color,
+        main_title: config.main_title,
+        main_subtitle: config.main_subtitle,
+      }, { onConflict: 'user_id' });
+
+      if (error) throw error;
+
+      showNotification("Cập nhật ảnh đại diện thành công!");
+      onProfileUpdate?.();
+      setPersonalAvatarFile(null);
+    } catch (error: any) {
+      console.error("Lỗi cập nhật profile:", error);
+      showNotification("Lỗi cập nhật ảnh đại diện!", true);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleConfigSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -511,6 +557,73 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
       <div className="mt-8">
         {activeSubTab === 'dashboard' && (
           <div className="space-y-8">
+            {/* Personal Profile Section */}
+            <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-rose-100 flex flex-col md:flex-row items-center gap-8">
+              <div className="relative group shrink-0">
+                <div className="w-32 h-32 rounded-[2rem] overflow-hidden shadow-2xl border-4 border-white group-hover:opacity-90 transition-opacity">
+                  <img 
+                    src={userProfile?.avatar_url || 'https://placehold.co/150x150?text=Avatar'} 
+                    className="w-full h-full object-cover" 
+                    alt="Personal Avatar" 
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <input 
+                  type="file" 
+                  id="personal-avatar" 
+                  className="hidden" 
+                  accept="image/*"
+                  onChange={(e) => setPersonalAvatarFile(e.target.files?.[0] || null)}
+                />
+                <label 
+                  htmlFor="personal-avatar" 
+                  className="absolute -bottom-2 -right-2 w-10 h-10 bg-primary text-white rounded-2xl shadow-xl flex items-center justify-center cursor-pointer hover:scale-110 transition-transform z-10"
+                >
+                  <Camera size={18} />
+                </label>
+              </div>
+              
+              <div className="flex-grow text-center md:text-left">
+                <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">Hồ sơ cá nhân</h2>
+                <p className="text-sm text-gray-500 font-medium mt-1">Cài đặt ảnh đại diện riêng để hiển thị trên bản đồ và các hoạt động của bạn.</p>
+                
+                {personalAvatarFile && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 flex items-center justify-center md:justify-start gap-4"
+                  >
+                    <button 
+                      onClick={handlePersonalProfileSubmit}
+                      disabled={loading}
+                      className="px-6 py-3 bg-gray-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-primary transition-all flex items-center gap-2"
+                    >
+                      {loading ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                      Lưu ảnh mới
+                    </button>
+                    <button 
+                      onClick={() => setPersonalAvatarFile(null)}
+                      className="px-6 py-3 bg-gray-100 text-gray-500 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
+                    >
+                      Hủy
+                    </button>
+                  </motion.div>
+                )}
+              </div>
+
+              <div className="hidden lg:block shrink-0 px-8 py-4 bg-rose-50 rounded-3xl border border-rose-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-rose-500 shadow-sm">
+                    <Heart size={20} fill="currentColor" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest leading-none mb-1">Trạng thái</p>
+                    <p className="text-xs font-bold text-gray-800 leading-none">Cá nhân hóa ❤️</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Stats Grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[

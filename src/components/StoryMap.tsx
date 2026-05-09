@@ -3,10 +3,11 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L, { Icon, divIcon } from 'leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, Calendar, BookOpen, X, Maximize2, Minimize2, Navigation as NavIcon, ChevronRight, List, Zap, User } from 'lucide-react';
+import { MapPin, Calendar, BookOpen, X, Maximize2, Minimize2, Navigation as NavIcon, ChevronRight, List, Zap, User, Plus, Minus } from 'lucide-react';
 import { AppConfig, Database } from '../types';
 import { getOptimizedImageUrl } from '../lib/imageUtils';
 import { supabase } from '../lib/supabase';
+import { usePresence } from '../lib/PresenceContext';
 
 type Event = Database['public']['Tables']['events']['Row'];
 
@@ -19,15 +20,16 @@ const defaultIcon = new Icon({
 });
 
 // Custom marker with image
-const createCustomIcon = (imageUrl: string) => {
+const createCustomIcon = (imageUrl: string, isOffline: boolean = false) => {
   return divIcon({
     className: 'custom-marker',
     html: `
-      <div class="relative w-10 h-10 group">
+      <div class="relative w-10 h-10 group ${isOffline ? 'opacity-60 grayscale-[0.5] blur-[0.5px]' : ''}">
         <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 bg-white rotate-45 border-r border-b border-gray-100"></div>
         <div class="w-full h-full rounded-2xl border-4 border-white shadow-lg overflow-hidden group-hover:scale-110 transition-transform bg-rose-50">
           <img src="${imageUrl}" class="w-full h-full object-cover" />
         </div>
+        ${!isOffline ? '<div class="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white shadow-sm animate-pulse"></div>' : ''}
       </div>
     `,
     iconSize: [40, 40],
@@ -39,6 +41,7 @@ interface StoryMapProps {
   events: Event[];
   config: AppConfig;
   userId?: string;
+  userProfile?: { id: string, avatar_url: string | null } | null;
 }
 
 const ZoomControl = () => {
@@ -122,13 +125,15 @@ const MapController = ({
   return null;
 };
 
-export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId }) => {
+export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, userProfile }) => {
+  const { isOtherOnline } = usePresence();
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showList, setShowList] = useState(false);
+  const [showList, setShowList] = useState(true);
   const [selectedItem, setSelectedItem] = useState<Event | null>(null);
   const [flyToCoords, setFlyToCoords] = useState<[number, number] | null>(null);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [otherLocation, setOtherLocation] = useState<[number, number] | null>(null);
+  const [otherProfile, setOtherProfile] = useState<{ avatar_url: string | null } | null>(null);
   const lastUpdateRef = React.useRef<number>(0);
   const lastPosRef = React.useRef<[number, number] | null>(null);
 
@@ -175,7 +180,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId }) =>
         { event: '*', schema: 'public', table: 'locations' },
         (payload: any) => {
           const { new: newLoc } = payload;
-          if (newLoc && newLoc.id !== userId) {
+          if (newLoc && newLoc.user_id !== userId) {
             setOtherLocation([newLoc.lat, newLoc.lng]);
           }
         }
@@ -187,12 +192,23 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId }) =>
       const { data } = await supabase
         .from('locations')
         .select('*')
-        .neq('id', userId)
+        .neq('user_id', userId)
         .order('updated_at', { ascending: false })
         .limit(1);
       
       if (data && data.length > 0) {
         setOtherLocation([data[0].lat, data[0].lng]);
+
+        // Fetch other user's profile avatar
+        const { data: profile } = await supabase
+          .from('config')
+          .select('avatar_url')
+          .eq('user_id', data[0].user_id)
+          .maybeSingle();
+        
+        if (profile) {
+          setOtherProfile(profile);
+        }
       }
     };
     fetchOtherLocation();
@@ -206,7 +222,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId }) =>
           navigator.geolocation.getCurrentPosition((pos) => {
              const { latitude, longitude } = pos.coords;
              supabase.from('locations').upsert({
-               id: userId,
+               user_id: userId,
                lat: latitude,
                lng: longitude,
                updated_at: new Date().toISOString()
@@ -219,6 +235,30 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId }) =>
 
     // 3. Watch current position
     let watchId: number;
+    
+    const updateLocationInDB = async (lat: number, lng: number) => {
+      await supabase.from('locations').upsert({
+        user_id: userId,
+        lat: lat,
+        lng: lng,
+        updated_at: new Date().toISOString()
+      });
+    };
+
+    const fetchLocationByIP = async () => {
+      try {
+        const response = await fetch('http://ip-api.com/json');
+        const data = await response.json();
+        if (data.status === 'success') {
+          const { lat, lon } = data;
+          setUserLocation([lat, lon]);
+          updateLocationInDB(lat, lon);
+        }
+      } catch (err) {
+        console.error("IP Location Fallback failed:", err);
+      }
+    };
+
     if ("geolocation" in navigator) {
       watchId = navigator.geolocation.watchPosition(
         async (position) => {
@@ -240,23 +280,17 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId }) =>
           if (shouldUpdate()) {
             lastUpdateRef.current = now;
             lastPosRef.current = [latitude, longitude];
-            
-            await supabase.from('locations').upsert({
-              id: userId,
-              lat: latitude,
-              lng: longitude,
-              updated_at: new Date().toISOString()
-            });
+            updateLocationInDB(latitude, longitude);
           }
         },
         (error) => {
-          console.error("Geolocation error:", error);
-          if (error.code === error.PERMISSION_DENIED) {
-            alert("Vui lòng bật quyền truy cập vị trí để sử dụng tính năng bản đồ thời gian thực.");
-          }
+          console.warn("Geolocation error, attempting IP fallback:", error);
+          fetchLocationByIP();
         },
-        { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+        { enableHighAccuracy: false, maximumAge: 30000, timeout: 10000 }
       );
+    } else {
+      fetchLocationByIP();
     }
 
     return () => {
@@ -322,8 +356,8 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId }) =>
                   onClick={() => handleSelectLiveLocation(userLocation, "Bạn")}
                   className="w-full p-2 rounded-xl flex items-center gap-2 bg-blue-50/50 border border-blue-100/50 text-left hover:bg-blue-100/50 transition-all"
                 >
-                  <div className="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center text-white shadow-sm">
-                    <User size={18} />
+                  <div className="w-10 h-10 rounded-lg overflow-hidden border-2 border-blue-200">
+                    <img src={userProfile?.avatar_url || 'https://placehold.co/100x100?text=Me'} className="w-full h-full object-cover" alt="" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="text-[10px] font-bold text-gray-800 truncate">Vị trí của bạn</h4>
@@ -337,16 +371,19 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId }) =>
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => handleSelectLiveLocation(otherLocation, "Người ấy")}
-                  className="w-full p-2 rounded-xl flex items-center gap-2 bg-rose-50/50 border border-rose-100/50 text-left hover:bg-rose-100/50 transition-all"
+                  className={`w-full p-2 rounded-xl flex items-center gap-2 border text-left transition-all ${isOtherOnline ? 'bg-rose-50/50 border-rose-100/50' : 'bg-gray-50/50 border-gray-100/50 opacity-70'}`}
                 >
-                  <div className="w-10 h-10 rounded-lg overflow-hidden border-2 border-rose-200">
-                    <img src={config.avatar_url || 'https://placehold.co/100x100?text=❤️'} className="w-full h-full object-cover" alt="" />
+                  <div className="w-10 h-10 rounded-lg overflow-hidden border-2 border-rose-200 relative">
+                    <img src={otherProfile?.avatar_url || config.avatar_url || 'https://placehold.co/100x100?text=❤️'} className="w-full h-full object-cover" alt="" />
+                    {isOtherOnline && <div className="absolute top-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></div>}
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="text-[10px] font-bold text-gray-800 truncate">Vị trí của người ấy</h4>
-                    <p className="text-[9px] text-rose-500 animate-pulse font-medium">Đang online ❤️</p>
+                    <p className={`text-[9px] font-medium ${isOtherOnline ? 'text-rose-500 animate-pulse' : 'text-gray-400'}`}>
+                      {isOtherOnline ? 'Đang online ❤️' : 'Đã offline 🌙'}
+                    </p>
                   </div>
-                  <Zap size={10} className="text-rose-500 fill-rose-500" />
+                  <Zap size={10} className={isOtherOnline ? 'text-rose-500 fill-rose-500' : 'text-gray-300'} />
                 </motion.button>
               )}
             </div>
@@ -487,13 +524,15 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId }) =>
 
           {/* Live Markers */}
           {userLocation && (
-            <Marker position={userLocation} icon={userIcon}>
+            <Marker position={userLocation} icon={createCustomIcon(userProfile?.avatar_url || 'https://placehold.co/100x100?text=Me', false)}>
               <Popup>Vị trí của bạn</Popup>
             </Marker>
           )}
           {otherLocation && (
-            <Marker position={otherLocation} icon={otherIcon}>
-              <Popup>Vị trí của người ấy ❤️</Popup>
+            <Marker position={otherLocation} icon={createCustomIcon(otherProfile?.avatar_url || config.avatar_url || 'https://placehold.co/100x100?text=❤️', !isOtherOnline)}>
+              <Popup>
+                {isOtherOnline ? 'Vị trí hiện tại của người ấy ❤️' : 'Vị trí cuối cùng của người ấy 🌙'}
+              </Popup>
             </Marker>
           )}
 
@@ -524,15 +563,3 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId }) =>
     </div>
   );
 };
-
-// Internal Plus/Minus icons for ZoomControl
-const Plus = ({ size }: { size: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-  </svg>
-);
-const Minus = ({ size }: { size: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="5" y1="12" x2="19" y2="12" />
-  </svg>
-);

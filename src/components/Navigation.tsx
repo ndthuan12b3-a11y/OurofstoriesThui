@@ -11,9 +11,10 @@ interface NavigationProps {
   setActiveTab: (tab: string) => void;
   userRole: UserRole;
   onLogout: () => void;
+  userProfile?: { avatar_url: string | null } | null;
 }
 
-export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab, userRole, onLogout }) => {
+export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab, userRole, onLogout, userProfile }) => {
   const { isOtherOnline } = usePresence();
   const { currentTrack, isPlaying, togglePlay, playNext } = useMusic();
   const [hidden, setHidden] = useState(false);
@@ -60,17 +61,31 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab,
       )}>
         <div className="flex items-center justify-between gap-4">
           {/* Status Hub */}
-          <div className="bg-white/70 backdrop-blur-xl border border-white/50 px-4 py-2 rounded-full shadow-lg flex items-center gap-3">
-            <div className="relative">
+          <div className="bg-white/70 backdrop-blur-xl border border-white/50 px-3 py-1.5 rounded-full shadow-lg flex items-center gap-3">
+            <div className="relative group">
+              <div className="w-8 h-8 rounded-full border-2 border-white overflow-hidden shadow-sm bg-gray-50 flex items-center justify-center">
+                <img 
+                  src={userProfile?.avatar_url || 'https://placehold.co/100x100?text=👤'} 
+                  alt="My Avatar" 
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
               <div className={cn(
-                "w-3 h-3 rounded-full border-2 border-white",
-                isOtherOnline ? "bg-green-500 animate-pulse" : "bg-gray-300"
-              )} />
+                "absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-white bg-green-500 shadow-sm"
+              )} title="Bạn đang online" />
             </div>
-            <span className="text-[10px] font-black uppercase tracking-widest text-gray-700 hidden sm:block">
-              {isOtherOnline ? "Người ấy đang online" : "Người ấy đang offline"}
-            </span>
-            <Users size={14} className={cn("sm:hidden", isOtherOnline ? "text-green-500" : "text-gray-400")} />
+            <div className="h-4 w-px bg-gray-200 hidden sm:block mx-1" />
+            <div className="relative flex items-center gap-2">
+              <div className={cn(
+                "w-2.5 h-2.5 rounded-full",
+                isOtherOnline ? "bg-rose-500 animate-pulse" : "bg-gray-300"
+              )} />
+              <span className="text-[10px] font-black uppercase tracking-widest text-gray-700 hidden sm:block">
+                {isOtherOnline ? "Người ấy đang online ❤️" : "Người ấy đang offline"}
+              </span>
+              <Users size={14} className={cn("sm:hidden", isOtherOnline ? "text-rose-500" : "text-gray-400")} />
+            </div>
           </div>
 
           {/* Music Hub */}
