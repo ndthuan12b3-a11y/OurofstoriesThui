@@ -464,32 +464,6 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
                       className="max-w-full max-h-full object-contain"
                     />
                     
-                    {/* Floating Mobile Nav Overlay */}
-                    <div className="absolute inset-x-0 bottom-0 p-4 flex justify-between items-center bg-gradient-to-t from-black/60 to-transparent lg:hidden">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const idx = photos.findIndex(p => p.id === selectedPhoto.id);
-                          if (idx > 0) setSelectedPhoto(photos[idx - 1]);
-                        }}
-                        disabled={photos.findIndex(p => p.id === selectedPhoto.id) === 0}
-                        className="p-3 bg-white/20 rounded-full text-white backdrop-blur-md disabled:opacity-20"
-                      >
-                        <ChevronLeft size={20} />
-                      </button>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const idx = photos.findIndex(p => p.id === selectedPhoto.id);
-                          if (idx < photos.length - 1) setSelectedPhoto(photos[idx + 1]);
-                        }}
-                        disabled={photos.findIndex(p => p.id === selectedPhoto.id) === photos.length - 1}
-                        className="p-3 bg-white/20 rounded-full text-white backdrop-blur-md disabled:opacity-20"
-                      >
-                        <ChevronRight size={20} />
-                      </button>
-                    </div>
-
                     <a 
                       href={selectedPhoto.photo_url} 
                       download 
@@ -530,29 +504,6 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
                           <p className="text-[10px] font-black uppercase tracking-widest text-gray-300">Ngày lưu giữ</p>
                           <p className="text-sm font-bold text-gray-700">{formatDate(selectedPhoto.created_at)}</p>
                         </div>
-                      </div>
-                      
-                      <div className="hidden lg:grid grid-cols-2 gap-3">
-                        <button 
-                          onClick={() => {
-                            const idx = photos.findIndex(p => p.id === selectedPhoto.id);
-                            if (idx > 0) setSelectedPhoto(photos[idx - 1]);
-                          }}
-                          disabled={photos.findIndex(p => p.id === selectedPhoto.id) === 0}
-                          className="py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                        >
-                          Ảnh trước
-                        </button>
-                        <button 
-                          onClick={() => {
-                            const idx = photos.findIndex(p => p.id === selectedPhoto.id);
-                            if (idx < photos.length - 1) setSelectedPhoto(photos[idx + 1]);
-                          }}
-                          disabled={photos.findIndex(p => p.id === selectedPhoto.id) === photos.length - 1}
-                          className="py-3 bg-primary text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-primary/80 transition-colors soft-shadow disabled:opacity-30 disabled:cursor-not-allowed"
-                        >
-                          Ảnh tiếp
-                        </button>
                       </div>
                       
                       <button 

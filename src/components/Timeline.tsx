@@ -16,6 +16,8 @@ import { TimelineSkeleton } from './Skeleton';
 import { Modal } from './Modal';
 import { showNotification } from '../lib/notifications';
 import { JourneyStoryteller } from './JourneyStoryteller';
+import { LocationPicker } from './LocationPicker';
+import { StoryMap } from './StoryMap';
 
 interface TimelineProps {
   config: AppConfig;
@@ -28,6 +30,7 @@ interface Event {
   description: string;
   date: string;
   photo_url: string;
+  location: { lat: number; lng: number; address_name: string } | null;
   created_at: string;
 }
 
@@ -92,8 +95,10 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
     title: '', 
     date: '', 
     description: '', 
-    photoFile: null as File | null 
+    photoFile: null as File | null,
+    location: null as { lat: number; lng: number; address_name: string } | null
   });
+  const [showMap, setShowMap] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
   const [stories, setStories] = useState<any[]>([]);
@@ -236,6 +241,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
         date: uploadForm.date,
         description: uploadForm.description,
         photo_url: photoUrl,
+        location: uploadForm.location,
         user_id: '6857068c-7cc5-45ce-8099-23f0e3264251' // PRIMARY_CONFIG_ID
       }]);
 
@@ -243,7 +249,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
 
       showNotification("Đã thêm kỷ niệm mới!");
       setIsUploadModalOpen(false);
-      setUploadForm({ title: '', date: '', description: '', photoFile: null });
+      setUploadForm({ title: '', date: '', description: '', photoFile: null, location: null });
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
       showNotification("Lỗi khi lưu kỷ niệm!", true);
@@ -288,78 +294,122 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
   const days = calculateDays(config.start_date);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 pb-20 animate-fadeIn">
-      {/* Compact Cute Header */}
-      <div className="flex flex-col items-center mb-12">
-        <motion.div 
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="relative mb-6"
-        >
-          <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] overflow-hidden border-4 border-white shadow-xl rotate-3 hover:rotate-0 transition-transform duration-500">
-            <img
-              src={getOptimizedImageUrl(config.avatar_url || "https://placehold.co/200x200/fcc4d6/333?text=Love", 400)}
-              alt="Couple"
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-          </div>
+    <div className="max-w-4xl mx-auto px-4 pb-32 md:pb-20 animate-fadeIn">
+      {/* HUD Header - Modern & Compact */}
+      <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-12 bg-white/40 backdrop-blur-md p-6 rounded-[2.5rem] border border-white/50">
+        <div className="flex items-center gap-4">
           <motion.div 
-            animate={{ y: [0, -5, 0] }}
-            transition={{ repeat: Infinity, duration: 2 }}
-            className="absolute -bottom-3 -right-3 w-12 h-12 bg-white rounded-2xl shadow-lg flex items-center justify-center text-rose-400"
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="relative"
           >
-            <Heart size={24} fill="currentColor" />
-          </motion.div>
-        </motion.div>
-        
-        <div className="text-center">
-          <h1 className="text-3xl md:text-4xl font-black text-gray-800 tracking-tight mb-2">
-            {config.name_male} <span className="text-rose-300">❤</span> {config.name_female}
-          </h1>
-          <div className="flex flex-col items-center gap-4">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-rose-50 text-rose-400 rounded-full text-sm font-bold border border-rose-100">
-              <Calendar size={14} />
-              <span> {formatDate(config.start_date)}</span>
+            <div className="w-20 h-20 md:w-24 md:h-24 rounded-3xl overflow-hidden border-2 border-white shadow-lg -rotate-3 hover:rotate-0 transition-transform duration-500">
+              <img
+                src={getOptimizedImageUrl(config.avatar_url || "https://placehold.co/200x200/fcc4d6/333?text=Love", 400)}
+                alt="Couple"
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
             </div>
-            
-            {HAS_VIEW_ACCESS() && (
-              <button
-                onClick={() => setIsUploadModalOpen(true)}
-                className="inline-flex items-center gap-2 px-6 py-2 bg-white text-rose-400 border-2 border-rose-100 rounded-2xl font-bold soft-shadow hover:bg-rose-50 transition-all transform hover:scale-105"
-              >
-                <Plus size={18} />
-                Thêm Kỷ Niệm
-              </button>
-            )}
+            <motion.div 
+              animate={{ scale: [1, 1.2, 1] }}
+              transition={{ repeat: Infinity, duration: 2 }}
+              className="absolute -bottom-2 -right-2 w-8 h-8 bg-white rounded-xl shadow-lg flex items-center justify-center text-rose-400"
+            >
+              <Heart size={16} fill="currentColor" />
+            </motion.div>
+          </motion.div>
+          
+          <div className="text-left">
+            <h1 className="text-xl md:text-2xl font-black text-gray-800 tracking-tight leading-none mb-1">
+              {config.name_male} <span className="text-rose-300">❤</span> {config.name_female}
+            </h1>
+            <div className="inline-flex items-center gap-1.5 text-rose-400 text-[10px] font-black uppercase tracking-widest">
+              <Calendar size={12} />
+              <span>{formatDate(config.start_date)}</span>
+            </div>
           </div>
+        </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowMap(!showMap)}
+              className={cn(
+                "p-3 rounded-2xl font-black text-[10px] uppercase tracking-widest soft-shadow transition-all flex items-center gap-2",
+                showMap ? "bg-gray-900 text-white" : "bg-white text-gray-400 border border-gray-100"
+              )}
+            >
+              <MapPin size={16} />
+              {showMap ? "Ẩn Bản Đồ" : "Story Map"}
+            </button>
+          {HAS_VIEW_ACCESS() && (
+            <button
+              onClick={() => setIsUploadModalOpen(true)}
+              className="px-6 py-3 bg-primary text-white rounded-2xl font-black text-[10px] uppercase tracking-widest soft-shadow hover:scale-105 transition-all flex items-center gap-2"
+            >
+              <Plus size={16} />
+              Thêm Kỷ Niệm
+            </button>
+          )}
         </div>
       </div>
 
       {HAS_VIEW_ACCESS() && (
-        <div className="space-y-8 mb-12">
+        <div className="grid grid-cols-1 lg:grid-cols-1 gap-8 mb-12">
+          {showMap && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+            >
+              <StoryMap events={events as any} config={config} />
+            </motion.div>
+          )}
+          {/* Day Counter Widget - Transparent HUD style */}
+          <motion.div 
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="flex flex-row items-center justify-between gap-4 glassmorphism p-6 md:p-8"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-rose-400/10 rounded-2xl flex items-center justify-center text-rose-400 shrink-0">
+                <Sparkles size={28} />
+              </div>
+              <div className="flex flex-col">
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Together for</p>
+                <h2 className="text-3xl font-black text-gray-800 leading-none">{days} <span className="text-sm font-bold text-rose-300">days</span></h2>
+              </div>
+            </div>
+            <div className="flex flex-col items-end">
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Current Mood</p>
+              <p className="text-rose-400 font-black italic text-sm md:text-base">Say đắm ✨</p>
+            </div>
+          </motion.div>
+
           {/* Story Hub */}
           {stories.length > 0 && (
-            <div className="bg-white/60 backdrop-blur-sm rounded-[2rem] p-6 border border-rose-50 soft-shadow">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-black text-gray-800 flex items-center gap-2">
-                  <BookOpen size={16} className="text-rose-400" />
-                  Kho Lưu Trữ Câu Chuyện
+            <div className="bg-white/40 backdrop-blur-md rounded-[2.5rem] p-6 border border-white/50 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between mb-4 px-2">
+                <h3 className="text-[10px] font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest">
+                  <BookOpen size={14} className="text-rose-400" />
+                  Story Library
                 </h3>
-                <span className="text-[10px] font-bold text-rose-300 uppercase tracking-widest">{stories.length} câu chuyện</span>
+                <span className="text-[8px] font-bold text-rose-300 uppercase tracking-[0.2em]">{stories.length} stories</span>
               </div>
-              <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+              <div className="flex gap-4 overflow-x-auto pb-4 px-2 custom-scrollbar no-scrollbar scroll-smooth">
                 {stories.map((story) => (
                   <button
                     key={story.id}
                     onClick={() => setSelectedStory(story)}
-                    className="flex-shrink-0 w-32 h-40 bg-white rounded-2xl border border-rose-50 p-3 flex flex-col items-center justify-center text-center group hover:border-rose-200 transition-all hover:-translate-y-1"
+                    className="flex-shrink-0 w-32 h-44 bg-white/60 rounded-3xl border border-white/50 p-4 flex flex-col items-start justify-end group hover:bg-white hover:border-rose-100 transition-all hover:-translate-y-1 shadow-sm relative overflow-hidden"
                   >
-                    <div className="w-10 h-10 bg-rose-50 rounded-full flex items-center justify-center text-rose-400 mb-3 group-hover:scale-110 transition-transform">
-                      <Heart size={18} fill="currentColor" />
+                    <div className="absolute top-4 left-4 w-8 h-8 bg-rose-50 rounded-xl flex items-center justify-center text-rose-400 group-hover:scale-110 transition-transform">
+                      <Heart size={14} fill="currentColor" />
                     </div>
-                    <p className="text-[10px] font-black text-gray-700 line-clamp-2 mb-1">Hành Trình #{story.id.slice(0, 4)}</p>
-                    <p className="text-[8px] font-bold text-gray-400 uppercase">{formatDate(story.created_at)}</p>
+                    <div>
+                      <p className="text-[9px] font-black text-gray-800 leading-tight mb-1">Vol. {story.id.slice(0, 4)}</p>
+                      <p className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter">{formatDate(story.created_at)}</p>
+                    </div>
                   </button>
                 ))}
               </div>
@@ -370,34 +420,10 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
         </div>
       )}
 
-      {/* Cute Day Counter Widget */}
-      <motion.div 
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="bg-white p-5 lg:p-6 rounded-[1.5rem] lg:rounded-[2rem] shadow-lg border border-rose-50 mb-12 lg:mb-16 flex flex-col sm:flex-row items-center justify-between overflow-hidden relative gap-4"
-      >
-        <div className="flex items-center gap-4 relative z-10 w-full sm:w-auto">
-          <div className="w-14 h-14 lg:w-16 lg:h-16 bg-rose-100 rounded-2xl flex items-center justify-center text-rose-500 shrink-0">
-            <Sparkles size={28} />
-          </div>
-          <div>
-            <p className="text-[10px] lg:text-xs font-bold text-gray-400 uppercase tracking-wider">Ngày hạnh phúc</p>
-            <h2 className="text-2xl lg:text-3xl font-black text-gray-800">{days} <span className="text-sm lg:text-lg font-bold text-rose-300">ngày</span></h2>
-          </div>
-        </div>
-        <div className="relative z-10 w-full sm:w-auto text-left sm:text-right border-t sm:border-t-0 pt-4 sm:pt-0 border-rose-50">
-          <p className="text-[10px] lg:text-xs font-bold text-gray-400 uppercase tracking-wider">Trạng thái</p>
-          <p className="text-rose-400 font-black italic text-sm lg:text-base">Đang yêu say đắm ✨</p>
-        </div>
-        {/* Decorative blobs */}
-        <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-rose-50 rounded-full -z-0" />
-        <div className="absolute left-1/4 -top-8 w-16 h-16 bg-blue-50 rounded-full -z-0" />
-      </motion.div>
-
-      {/* Compact Timeline */}
-      <div className="relative space-y-8 min-h-[300px]">
-        {/* Decorative Line */}
-        <div className="absolute left-6 top-0 bottom-0 w-1 bg-gradient-to-b from-rose-100 via-blue-100 to-transparent rounded-full" />
+      {/* Main Timeline HUD */}
+      <div className="relative space-y-12 md:space-y-16 min-h-[400px]">
+        {/* Modern Vertical Line */}
+        <div className="absolute left-6 md:left-8 top-0 bottom-0 w-1 bg-gradient-to-b from-rose-100 via-blue-50 to-transparent rounded-full" />
 
         <AnimatePresence mode="popLayout">
           {loading ? (
@@ -407,8 +433,8 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
               <EventItem key={event.id} event={event} index={index} onClick={setSelectedEvent} />
             ))
           ) : (
-            <div className="text-center py-20 bg-white rounded-[2rem] shadow-inner border-2 border-dashed border-rose-50">
-              <p className="text-gray-400 font-bold">Hãy bắt đầu viết nên câu chuyện của chúng mình... ✨</p>
+            <div className="ml-16 mr-4 text-center py-24 bg-white/40 rounded-[2.5rem] border-2 border-dashed border-gray-100">
+              <p className="text-gray-400 font-bold px-8">Hãy bắt đầu viết nên câu chuyện của chúng mình... ✨</p>
             </div>
           )}
         </AnimatePresence>
@@ -519,32 +545,6 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
                       className="max-w-full max-h-full object-contain"
                     />
 
-                    {/* Floating Mobile Nav Overlay */}
-                    <div className="absolute inset-x-0 bottom-0 p-4 flex justify-between items-center bg-gradient-to-t from-black/60 to-transparent lg:hidden">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const idx = events.findIndex(p => p.id === selectedEvent.id);
-                          if (idx > 0) setSelectedEvent(events[idx - 1]);
-                        }}
-                        disabled={events.findIndex(p => p.id === selectedEvent.id) === 0}
-                        className="p-3 bg-white/20 rounded-full text-white backdrop-blur-md disabled:opacity-20"
-                      >
-                        <ChevronLeft size={20} />
-                      </button>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const idx = events.findIndex(p => p.id === selectedEvent.id);
-                          if (idx < events.length - 1) setSelectedEvent(events[idx + 1]);
-                        }}
-                        disabled={events.findIndex(p => p.id === selectedEvent.id) === events.length - 1}
-                        className="p-3 bg-white/20 rounded-full text-white backdrop-blur-md disabled:opacity-20"
-                      >
-                        <ChevronRight size={20} />
-                      </button>
-                    </div>
-
                     <a 
                       href={selectedEvent.photo_url} 
                       download 
@@ -555,8 +555,8 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
                       <Download size={20} />
                     </a>
                   </div>
-                  <div className="lg:w-1/4 p-6 lg:p-8 flex flex-col bg-gray-50/50 overflow-y-auto shrink-0">
-                    <div>
+                  <div className="lg:w-1/4 p-6 lg:p-8 flex flex-col bg-gray-50/50 overflow-y-auto custom-scrollbar shrink-0">
+                    <div className="flex-grow">
                       <div className="flex items-center gap-2 text-rose-400 mb-3">
                         <div className="w-8 h-8 rounded-xl bg-rose-400/10 flex items-center justify-center">
                           <Heart size={16} fill="currentColor" />
@@ -564,12 +564,16 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
                         <span className="text-[10px] font-black uppercase tracking-widest">Kỷ niệm tình yêu</span>
                       </div>
                       <h2 className="text-xl lg:text-2xl font-black text-gray-800 leading-tight mb-4">{selectedEvent.title}</h2>
-                      <p className="text-sm lg:text-base text-gray-600 leading-relaxed italic border-l-2 border-rose-100 pl-4 py-1">
-                        "{selectedEvent.description}"
-                      </p>
+                      
+                      {/* Scrollable Description Area */}
+                      <div className="max-h-[30vh] lg:max-h-[40vh] overflow-y-auto custom-scrollbar pr-2 mb-6">
+                        <p className="text-sm lg:text-base text-gray-600 leading-relaxed italic border-l-3 border-rose-100 pl-4 py-1 whitespace-pre-wrap">
+                          "{selectedEvent.description}"
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="lg:mt-auto pt-6 lg:pt-8 border-t border-gray-100 space-y-6">
+                    <div className="lg:mt-auto pt-6 border-t border-gray-100 space-y-6">
                       <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-gray-50">
                           <Calendar size={20} className="text-rose-400" />
@@ -580,28 +584,18 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
                         </div>
                       </div>
 
-                      <div className="hidden lg:grid grid-cols-2 gap-3">
-                        <button 
-                          onClick={() => {
-                            const idx = events.findIndex(p => p.id === selectedEvent.id);
-                            if (idx > 0) setSelectedEvent(events[idx - 1]);
-                          }}
-                          disabled={events.findIndex(p => p.id === selectedEvent.id) === 0}
-                          className="py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                        >
-                          Ảnh trước
-                        </button>
-                        <button 
-                          onClick={() => {
-                            const idx = events.findIndex(p => p.id === selectedEvent.id);
-                            if (idx < events.length - 1) setSelectedEvent(events[idx + 1]);
-                          }}
-                          disabled={events.findIndex(p => p.id === selectedEvent.id) === events.length - 1}
-                          className="py-3 bg-rose-400 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-rose-500 transition-colors soft-shadow disabled:opacity-30 disabled:cursor-not-allowed"
-                        >
-                          Ảnh tiếp
-                        </button>
-                      </div>
+                      {/* Optional Location Info if available */}
+                      {selectedEvent.location && (
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-gray-50">
+                            <MapPin size={20} className="text-blue-400" />
+                          </div>
+                          <div className="min-w-0 flex-grow">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-300">Địa điểm</p>
+                            <p className="text-[11px] font-bold text-gray-700 truncate">{selectedEvent.location.address_name}</p>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="flex items-center gap-4">
                         <div className="w-8 h-8 rounded-full bg-yellow-50 flex items-center justify-center text-yellow-400">
@@ -612,9 +606,9 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
                       
                       <button 
                         onClick={() => setSelectedEvent(null)}
-                        className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-rose-400 transition-colors soft-shadow"
+                        className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.25em] shadow-lg hover:bg-primary transition-all duration-300 hover:-translate-y-0.5"
                       >
-                        Đóng lại
+                        Đóng
                       </button>
                     </div>
                   </div>
@@ -626,21 +620,22 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
         document.body
       )}
 
-      {/* Upload Modal */}
+      {/* Upload Modal - Minimalist */}
       <Modal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
-        title="Viết Tiếp Câu Chuyện Tình Yêu"
+        title="Nâng Cấp Kỷ Niệm"
+        progress={uploading ? 100 : (isGeneratingCaption ? 50 : 0)}
       >
-        <form onSubmit={handleUploadSubmit} className="space-y-4">
+        <form onSubmit={handleUploadSubmit} className="space-y-6">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-bold text-gray-600">Tiêu đề kỷ niệm</label>
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tiêu đề</label>
               <button
                 type="button"
                 onClick={generateAICaption}
                 disabled={isGeneratingCaption || !uploadForm.photoFile}
-                className="text-xs font-black text-primary flex items-center gap-1 hover:underline disabled:opacity-50 disabled:no-underline"
+                className="text-[10px] font-black text-primary flex items-center gap-1 hover:brightness-110 disabled:opacity-50 transition-all uppercase"
               >
                 {isGeneratingCaption ? (
                   <RefreshCw className="animate-spin" size={12} />
@@ -654,34 +649,41 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
               type="text"
               value={uploadForm.title}
               onChange={e => setUploadForm({ ...uploadForm, title: e.target.value })}
-              placeholder="Ví dụ: Lần đầu gặp gỡ..."
-              className="w-full p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-primary/20"
+              placeholder="Khoảnh khắc ấy..."
+              className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all font-medium text-gray-800"
               required
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-bold text-gray-600">Ngày diễn ra</label>
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Ngày tháng</label>
             <input
               type="date"
               value={uploadForm.date}
               onChange={e => setUploadForm({ ...uploadForm, date: e.target.value })}
-              className="w-full p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all font-medium text-gray-800"
               required
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-bold text-gray-600">Cảm xúc / Mô tả</label>
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Cảm xúc</label>
             <textarea
               value={uploadForm.description}
               onChange={e => setUploadForm({ ...uploadForm, description: e.target.value })}
               placeholder="Kể lại khoảnh khắc ấy..."
-              className="w-full p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-primary/20 h-32"
+              className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all h-32 font-medium text-gray-800 resize-none"
               required
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-bold text-gray-600">Ảnh kỷ niệm</label>
-            <div className="relative group">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Địa điểm</label>
+            <LocationPicker 
+              value={uploadForm.location}
+              onChange={(loc) => setUploadForm({ ...uploadForm, location: loc })}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Hình ảnh</label>
+            <div className="relative">
               <input
                 type="file"
                 accept="image/*"
@@ -691,18 +693,12 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
               />
               <label
                 htmlFor="event-upload"
-                className="flex flex-col items-center justify-center w-full p-8 border-2 border-dashed border-gray-200 rounded-2xl cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all"
+                className="flex flex-col items-center justify-center w-full p-8 bg-white/30 border-2 border-dashed border-white/50 rounded-2xl cursor-pointer hover:bg-white/50 transition-all"
               >
                 {uploadForm.photoFile ? (
-                  <div className="flex items-center gap-2 text-primary font-bold">
-                    <ImageIcon size={24} />
-                    <span>{uploadForm.photoFile.name}</span>
-                  </div>
+                  <span className="text-primary font-black text-[10px] uppercase">{uploadForm.photoFile.name}</span>
                 ) : (
-                  <>
-                    <Camera size={32} className="text-gray-400 mb-2" />
-                    <span className="text-gray-500 font-medium">Chọn một bức ảnh thật đẹp</span>
-                  </>
+                  <Camera size={24} className="text-gray-300" />
                 )}
               </label>
             </div>
@@ -710,14 +706,14 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
           <button
             type="submit"
             disabled={uploading}
-            className="w-full py-4 btn-primary-gradient rounded-2xl font-bold soft-shadow flex items-center justify-center gap-2 disabled:opacity-50"
+            className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-primary transition-all flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {uploading ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
-              <Heart size={20} fill="currentColor" />
+              <Heart size={16} fill="currentColor" />
             )}
-            {uploading ? "Đang lưu giữ..." : "Lưu Kỷ Niệm"}
+            {uploading ? "ĐANG LƯU..." : "LƯU KỶ NIỆM"}
           </button>
         </form>
       </Modal>

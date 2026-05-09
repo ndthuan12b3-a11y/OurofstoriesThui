@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Home, History, Settings, LogOut } from 'lucide-react';
-import { motion, useScroll, useMotionValueEvent } from 'motion/react';
+import { Home, History, Settings, LogOut, Music2, Pause, Play, SkipForward, Users, MapPin } from 'lucide-react';
+import { motion, useScroll, useMotionValueEvent, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { UserRole } from '../types';
 import { usePresence } from '../lib/PresenceContext';
+import { useMusic } from '../lib/MusicContext';
 
 interface NavigationProps {
   activeTab: string;
@@ -14,8 +15,10 @@ interface NavigationProps {
 
 export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab, userRole, onLogout }) => {
   const { isOtherOnline } = usePresence();
+  const { currentTrack, isPlaying, togglePlay, playNext } = useMusic();
   const [hidden, setHidden] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [showMusicControls, setShowMusicControls] = useState(false);
   const { scrollY } = useScroll();
 
   useEffect(() => {
@@ -39,26 +42,77 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab,
   });
 
   const tabs = [
-    { id: 'home', label: 'Trang Chính', icon: Home, show: true },
-    { id: 'timeline', label: 'Dòng Thời Gian', icon: History, show: true },
-    { id: 'management', label: 'Quản Lý', icon: Settings, show: true },
+    { id: 'home', label: 'Home', icon: Home, show: true },
+    { id: 'timeline', label: 'Timeline', icon: History, show: true },
+    { id: 'map', label: 'Map', icon: MapPin, show: true },
+    { id: 'management', label: 'Admin', icon: Settings, show: true },
   ];
 
   return (
     <>
-      {/* Desktop Nav */}
+      {/* 
+        HUD - Follower (Top Hub for Status & Music)
+        Chỉnh sửa để Hub không hiện giữa màn hình mà hiện ra theo màn hình đang nhìn thấy (Floating Sticky)
+      */}
+      <div className={cn(
+        "fixed top-4 left-4 right-4 md:left-24 md:right-8 z-40 transition-all duration-300",
+        hidden && "opacity-0 -translate-y-full pointer-events-none"
+      )}>
+        <div className="flex items-center justify-between gap-4">
+          {/* Status Hub */}
+          <div className="bg-white/70 backdrop-blur-xl border border-white/50 px-4 py-2 rounded-full shadow-lg flex items-center gap-3">
+            <div className="relative">
+              <div className={cn(
+                "w-3 h-3 rounded-full border-2 border-white",
+                isOtherOnline ? "bg-green-500 animate-pulse" : "bg-gray-300"
+              )} />
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-gray-700 hidden sm:block">
+              {isOtherOnline ? "Người ấy đang online" : "Người ấy đang offline"}
+            </span>
+            <Users size={14} className={cn("sm:hidden", isOtherOnline ? "text-green-500" : "text-gray-400")} />
+          </div>
+
+          {/* Music Hub */}
+          <div 
+            className="flex-grow max-w-xs bg-white/70 backdrop-blur-xl border border-white/50 px-4 py-2 rounded-full shadow-lg flex items-center gap-3 overflow-hidden group cursor-pointer"
+            onClick={() => setShowMusicControls(!showMusicControls)}
+          >
+            <div className={cn("w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary", isPlaying && "animate-spin-slow")}>
+              <Music2 size={16} />
+            </div>
+            <div className="flex-grow min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-tighter text-gray-400 leading-none mb-0.5">Now Playing</p>
+              <p className="text-[11px] font-bold text-gray-800 truncate leading-none">
+                {currentTrack?.title || "No track selected"}
+              </p>
+            </div>
+            <div className="flex items-center gap-1">
+              <button 
+                onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+                className="p-1.5 hover:bg-primary/20 rounded-full transition-colors text-primary"
+              >
+                {isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); playNext(); }}
+                className="p-1.5 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hidden sm:block"
+              >
+                <SkipForward size={14} fill="currentColor" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop Nav (HUD Side) */}
       <aside className={cn(
         "hidden md:flex fixed left-0 top-0 h-screen w-16 hover:w-56 bg-white/80 backdrop-blur-md border-r border-gray-100 flex-col items-center py-8 transition-all duration-300 z-50 group",
         modalOpen && "opacity-0 pointer-events-none"
       )}>
         <div className="mb-12 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap flex flex-col items-center">
-          <h1 className="text-xl font-black text-primary">MENU</h1>
-          <div className="flex items-center gap-2 mt-2">
-            <div className={cn("w-2 h-2 rounded-full", isOtherOnline ? "bg-green-500 animate-pulse" : "bg-gray-300")} />
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
-              {isOtherOnline ? "Người ấy đang online" : "Người ấy đang offline"}
-            </span>
-          </div>
+          <h1 className="text-xl font-black text-primary tracking-tighter">THÚI HOUSE</h1>
+          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-[0.2em] mt-1 italic">Love Hub v2.0</p>
         </div>
         
         <nav className="flex-grow flex flex-col gap-4 w-full px-2">
@@ -95,7 +149,7 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab,
         </button>
       </aside>
 
-      {/* Mobile Nav */}
+      {/* Mobile Nav (HUD Footer) */}
       <motion.footer 
         variants={{
           visible: { y: 0, opacity: 1 },
@@ -103,29 +157,30 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab,
         }}
         animate={hidden || modalOpen ? "hidden" : "visible"}
         transition={{ duration: 0.35, ease: "easeInOut" }}
-        className="md:hidden fixed bottom-6 left-4 right-4 bg-white/70 backdrop-blur-xl border border-white/40 p-3 z-[60] rounded-3xl soft-shadow"
+        className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/70 backdrop-blur-xl border border-white/40 p-2 z-[60] rounded-[2rem] soft-shadow w-auto min-w-[280px]"
       >
-        <nav className="flex justify-around items-center">
+        <nav className="flex justify-evenly items-center px-2">
           {tabs.filter(t => t.show).map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex flex-col items-center gap-1 p-2 transition-all active:scale-90",
-                activeTab === tab.id ? "text-primary scale-110" : "text-gray-400 opacity-60"
+                "flex flex-col items-center gap-1 p-3 transition-all active:scale-95",
+                activeTab === tab.id ? "text-primary bg-primary/5 rounded-2xl" : "text-gray-400 opacity-60"
               )}
             >
-              <tab.icon size={22} strokeWidth={activeTab === tab.id ? 3 : 2} />
+              <tab.icon size={24} strokeWidth={activeTab === tab.id ? 3 : 2} />
               <span className={cn("text-[8px] font-black uppercase tracking-widest", activeTab === tab.id ? "block" : "hidden")}>
-                {tab.id === 'home' ? 'Home' : tab.id === 'timeline' ? 'Moments' : 'Admin'}
+                {tab.label}
               </span>
             </button>
           ))}
+          <div className="w-px h-8 bg-gray-100 mx-2" />
           <button
             onClick={onLogout}
-            className="flex flex-col items-center gap-1 p-2 text-gray-400 opacity-60 active:scale-90"
+            className="flex flex-col items-center gap-1 p-3 text-gray-400 opacity-60 active:scale-95"
           >
-            <LogOut size={22} />
+            <LogOut size={24} />
           </button>
         </nav>
       </motion.footer>

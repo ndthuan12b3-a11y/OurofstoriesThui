@@ -4,13 +4,15 @@ import { UserRole, AppConfig } from '../types';
 import { 
   Plus, Edit, Trash2, Search, Save, Calendar, 
   Music, Image as ImageIcon, History, Users, ShieldCheck, Settings,
-  Volume2, VolumeX, BookOpen
+  Volume2, VolumeX, BookOpen, Camera, RefreshCw, Sparkles, Heart
 } from 'lucide-react';
 import { showNotification } from '../lib/notifications';
 import { Modal } from './Modal';
 import { cn, formatDate } from '../lib/utils';
 import { useMusic } from '../lib/MusicContext';
 import { Play, Pause, SkipBack, SkipForward, Repeat } from 'lucide-react';
+
+import { LocationPicker } from './LocationPicker';
 
 const MusicManagementPlayer: React.FC = () => {
   const { 
@@ -127,7 +129,13 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
   const [configForm, setConfigForm] = useState(config);
   const [bgImageFile, setBgImageFile] = useState<File | null>(null);
   const [bgVideoFile, setBgVideoFile] = useState<File | null>(null);
-  const [eventForm, setEventForm] = useState({ title: '', date: '', description: '', photoFile: null as File | null });
+  const [eventForm, setEventForm] = useState({ 
+    title: '', 
+    date: '', 
+    description: '', 
+    photoFile: null as File | null,
+    location: null as { lat: number; lng: number; address_name: string } | null
+  });
   const [photoForm, setPhotoForm] = useState({ description: '', tags: '', photoFile: null as File | null });
   const [musicForm, setMusicForm] = useState({ title: '', musicFile: null as File | null });
 
@@ -166,14 +174,20 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
   useEffect(() => {
     if (editingItem) {
       if (activeSubTab === 'events') {
-        setEventForm({ title: editingItem.title, date: editingItem.date, description: editingItem.description, photoFile: null });
+        setEventForm({ 
+          title: editingItem.title, 
+          date: editingItem.date, 
+          description: editingItem.description, 
+          photoFile: null,
+          location: editingItem.location
+        });
       } else if (activeSubTab === 'gallery') {
         setPhotoForm({ description: editingItem.description, tags: editingItem.tags?.join(', ') || '', photoFile: null });
       } else if (activeSubTab === 'music') {
         setMusicForm({ title: editingItem.title, musicFile: null });
       }
     } else {
-      setEventForm({ title: '', date: '', description: '', photoFile: null });
+      setEventForm({ title: '', date: '', description: '', photoFile: null, location: null });
       setPhotoForm({ description: '', tags: '', photoFile: null });
       setMusicForm({ title: '', musicFile: null });
     }
@@ -195,6 +209,7 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
       date: eventForm.date,
       description: eventForm.description,
       photo_url: photoUrl,
+      location: eventForm.location,
       user_id: PRIMARY_CONFIG_ID
     };
 
@@ -812,74 +827,177 @@ export const Management: React.FC<ManagementProps> = ({ userRole, config, onConf
         )}
       </div>
 
-      {/* Modals */}
-      <Modal isOpen={isConfigModalOpen} onClose={() => setIsConfigModalOpen(false)} title="Cấu Hình Chung">
-        <form onSubmit={handleConfigSubmit} className="space-y-4">
-          <input type="text" value={configForm.main_title} onChange={e => setConfigForm({...configForm, main_title: e.target.value})} placeholder="Tiêu đề chính" className="w-full p-3 bg-gray-50 rounded-xl outline-none" required />
-          <input type="text" value={configForm.main_subtitle} onChange={e => setConfigForm({...configForm, main_subtitle: e.target.value})} placeholder="Phụ đề" className="w-full p-3 bg-gray-50 rounded-xl outline-none" />
-          <div className="grid grid-cols-2 gap-4">
-            <input type="text" value={configForm.name_male} onChange={e => setConfigForm({...configForm, name_male: e.target.value})} placeholder="Tên Anh" className="p-3 bg-gray-50 rounded-xl outline-none" required />
-            <input type="text" value={configForm.name_female} onChange={e => setConfigForm({...configForm, name_female: e.target.value})} placeholder="Tên Em" className="p-3 bg-gray-50 rounded-xl outline-none" required />
-          </div>
-          <input type="date" value={configForm.start_date} onChange={e => setConfigForm({...configForm, start_date: e.target.value})} className="w-full p-3 bg-gray-50 rounded-xl outline-none" required />
-          <input type="color" value={configForm.primary_color} onChange={e => setConfigForm({...configForm, primary_color: e.target.value})} className="w-full h-12 bg-gray-50 rounded-xl outline-none cursor-pointer" />
+      {/* Modals - Minimalist Design Integration */}
+      <Modal 
+        isOpen={isConfigModalOpen} 
+        onClose={() => setIsConfigModalOpen(false)} 
+        title="Cấu Hình Không Gian"
+        progress={loading ? 100 : 0}
+      >
+        <form onSubmit={handleConfigSubmit} className="space-y-6">
           <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <label className="text-sm font-bold text-gray-500">Ảnh nền:</label>
-              {configForm.background_image_url && (
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tiêu đề & Phụ đề</label>
+            <input type="text" value={configForm.main_title} onChange={e => setConfigForm({...configForm, main_title: e.target.value})} placeholder="Vùng trời của chúng mình" className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all font-medium text-gray-800" required />
+            <input type="text" value={configForm.main_subtitle} onChange={e => setConfigForm({...configForm, main_subtitle: e.target.value})} placeholder="Lời ngỏ ngọt ngào" className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all font-medium text-gray-800" />
+          </div>
+          
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Danh tính</label>
+            <div className="grid grid-cols-2 gap-4">
+              <input type="text" value={configForm.name_male} onChange={e => setConfigForm({...configForm, name_male: e.target.value})} placeholder="Tên Anh" className="p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all font-medium text-gray-800" required />
+              <input type="text" value={configForm.name_female} onChange={e => setConfigForm({...configForm, name_female: e.target.value})} placeholder="Tên Em" className="p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all font-medium text-gray-800" required />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Ngày lễ & Màu sắc</label>
+            <div className="grid grid-cols-2 gap-4">
+              <input type="date" value={configForm.start_date} onChange={e => setConfigForm({...configForm, start_date: e.target.value})} className="p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all font-medium text-gray-800" required />
+              <input type="color" value={configForm.primary_color} onChange={e => setConfigForm({...configForm, primary_color: e.target.value})} className="w-full h-[58px] p-2 bg-white/50 border border-white/20 rounded-2xl outline-none cursor-pointer" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex justify-between items-center px-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Giao diện (Background)</label>
+              {(configForm.background_image_url || configForm.background_video_url) && (
                 <button 
                   type="button"
-                  onClick={() => setConfigForm({...configForm, background_image_url: ''})}
-                  className="text-[10px] text-red-500 font-bold hover:underline"
+                  onClick={() => setConfigForm({...configForm, background_image_url: '', background_video_url: ''})}
+                  className="text-[9px] font-black text-rose-500 uppercase tracking-tighter hover:underline"
                 >
-                  Xóa ảnh hiện tại
+                  Xóa nền cũ
                 </button>
               )}
             </div>
-            <input type="file" onChange={e => setBgImageFile(e.target.files?.[0] || null)} className="w-full p-3 bg-gray-50 rounded-xl outline-none" />
+            <div className="grid grid-cols-1 gap-3">
+              <div className="relative group">
+                <input type="file" onChange={e => setBgImageFile(e.target.files?.[0] || null)} className="hidden" id="bg-image-upload" />
+                <label htmlFor="bg-image-upload" className="flex items-center gap-3 p-4 bg-white/30 border border-dashed border-white/50 rounded-2xl cursor-pointer hover:bg-white/50 transition-all">
+                  <ImageIcon size={18} className="text-gray-400" />
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest truncate">
+                    {bgImageFile ? bgImageFile.name : "Tải lên ảnh nền"}
+                  </span>
+                </label>
+              </div>
+              <div className="relative group">
+                <input type="file" accept="video/*" onChange={e => setBgVideoFile(e.target.files?.[0] || null)} className="hidden" id="bg-video-upload" />
+                <label htmlFor="bg-video-upload" className="flex items-center gap-3 p-4 bg-white/30 border border-dashed border-white/50 rounded-2xl cursor-pointer hover:bg-white/50 transition-all">
+                  <Volume2 size={18} className="text-gray-400" />
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest truncate">
+                    {bgVideoFile ? bgVideoFile.name : "Tải lên video nền"}
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={loading} 
+            className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-primary transition-all duration-300 flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : "LƯU CẤU HÌNH"}
+          </button>
+        </form>
+      </Modal>
+
+      <Modal 
+        isOpen={isEventModalOpen} 
+        onClose={() => setIsEventModalOpen(false)} 
+        title={editingItem ? "Biên Tập Kỷ Niệm" : "Khởi Tạo Kỷ Niệm"}
+        progress={loading ? 100 : 0}
+      >
+        <form onSubmit={handleEventSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tiêu đề</label>
+            <input type="text" value={eventForm.title} onChange={e => setEventForm({...eventForm, title: e.target.value})} placeholder="Tựa đề khoảnh khắc" className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all font-medium text-gray-800" required />
           </div>
           <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <label className="text-sm font-bold text-gray-500">Video nền (File):</label>
-              {configForm.background_video_url && (
-                <button 
-                  type="button"
-                  onClick={() => setConfigForm({...configForm, background_video_url: ''})}
-                  className="text-[10px] text-red-500 font-bold hover:underline"
-                >
-                  Xóa video hiện tại
-                </button>
-              )}
-            </div>
-            <input type="file" accept="video/*" onChange={e => setBgVideoFile(e.target.files?.[0] || null)} className="w-full p-3 bg-gray-50 rounded-xl outline-none" />
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Ngày tháng</label>
+            <input type="date" value={eventForm.date} onChange={e => setEventForm({...eventForm, date: e.target.value})} className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all font-medium text-gray-800" required />
           </div>
-          <button type="submit" disabled={loading} className="w-full py-4 btn-primary-gradient rounded-xl font-bold soft-shadow">Lưu Cấu Hình</button>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Cảm xúc</label>
+            <textarea value={eventForm.description} onChange={e => setEventForm({...eventForm, description: e.target.value})} placeholder="Mô tả sự kiện này..." className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all h-32 font-medium text-gray-800 resize-none" required />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Địa điểm</label>
+            <LocationPicker 
+              value={eventForm.location}
+              onChange={(loc) => setEventForm({...eventForm, location: loc})}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Hình ảnh</label>
+            <input type="file" onChange={e => setEventForm({...eventForm, photoFile: e.target.files?.[0] || null})} className="hidden" id="event-file" />
+            <label htmlFor="event-file" className="flex items-center gap-3 p-4 bg-white/30 border border-dashed border-white/50 rounded-2xl cursor-pointer hover:bg-white/50 transition-all">
+              <Camera size={18} className="text-gray-400" />
+              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest truncate">
+                {eventForm.photoFile ? eventForm.photoFile.name : (editingItem ? "Thay đổi ảnh" : "Tải lên ảnh")}
+              </span>
+            </label>
+          </div>
+          <button type="submit" disabled={loading} className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-primary transition-all duration-300">
+            {loading ? "ĐANG XỬ LÝ..." : (editingItem ? "CẬP NHẬT" : "THÊM MỚI")}
+          </button>
         </form>
       </Modal>
 
-      <Modal isOpen={isEventModalOpen} onClose={() => setIsEventModalOpen(false)} title={editingItem ? "Sửa Kỷ Niệm" : "Thêm Kỷ Niệm"}>
-        <form onSubmit={handleEventSubmit} className="space-y-4">
-          <input type="text" value={eventForm.title} onChange={e => setEventForm({...eventForm, title: e.target.value})} placeholder="Tên sự kiện" className="w-full p-3 bg-gray-50 rounded-xl outline-none" required />
-          <input type="date" value={eventForm.date} onChange={e => setEventForm({...eventForm, date: e.target.value})} className="w-full p-3 bg-gray-50 rounded-xl outline-none" required />
-          <textarea value={eventForm.description} onChange={e => setEventForm({...eventForm, description: e.target.value})} placeholder="Mô tả" className="w-full p-3 bg-gray-50 rounded-xl outline-none h-32" required />
-          <input type="file" onChange={e => setEventForm({...eventForm, photoFile: e.target.files?.[0] || null})} className="w-full p-3 bg-gray-50 rounded-xl outline-none" />
-          <button type="submit" disabled={loading} className="w-full py-4 btn-primary-gradient rounded-xl font-bold soft-shadow">{editingItem ? "Cập Nhật" : "Thêm Mới"}</button>
-        </form>
-      </Modal>
-      <Modal isOpen={isPhotoModalOpen} onClose={() => setIsPhotoModalOpen(false)} title={editingItem ? "Sửa Ảnh" : "Thêm Ảnh"}>
-        <form onSubmit={handlePhotoSubmit} className="space-y-4">
-          <textarea value={photoForm.description} onChange={e => setPhotoForm({...photoForm, description: e.target.value})} placeholder="Mô tả ảnh" className="w-full p-3 bg-gray-50 rounded-xl outline-none h-24" required />
-          <input type="text" value={photoForm.tags} onChange={e => setPhotoForm({...photoForm, tags: e.target.value})} placeholder="Tags (cách nhau bằng dấu phẩy)" className="w-full p-3 bg-gray-50 rounded-xl outline-none" />
-          <input type="file" onChange={e => setPhotoForm({...photoForm, photoFile: e.target.files?.[0] || null})} className="w-full p-3 bg-gray-50 rounded-xl outline-none" />
-          <button type="submit" disabled={loading} className="w-full py-4 btn-primary-gradient rounded-xl font-bold soft-shadow">{editingItem ? "Cập Nhật" : "Thêm Mới"}</button>
+      <Modal 
+        isOpen={isPhotoModalOpen} 
+        onClose={() => setIsPhotoModalOpen(false)} 
+        title={editingItem ? "Sửa Ảnh Phim" : "Gửi Gắm Hình Ảnh"}
+        progress={loading ? 100 : 0}
+      >
+        <form onSubmit={handlePhotoSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Mô tả & Tags</label>
+            <textarea value={photoForm.description} onChange={e => setPhotoForm({...photoForm, description: e.target.value})} placeholder="Đôi lời về tấm hình này..." className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all h-24 font-medium text-gray-800 resize-none" required />
+            <input type="text" value={photoForm.tags} onChange={e => setPhotoForm({...photoForm, tags: e.target.value})} placeholder="Tags (yêu, kỷ niệm, du lịch...)" className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all font-medium text-gray-800" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tệp ảnh</label>
+            <input type="file" onChange={e => setPhotoForm({...photoForm, photoFile: e.target.files?.[0] || null})} className="hidden" id="gallery-file" />
+            <label htmlFor="gallery-file" className="flex items-center gap-3 p-4 bg-white/30 border border-dashed border-white/50 rounded-2xl cursor-pointer hover:bg-white/50 transition-all">
+              <ImageIcon size={18} className="text-gray-400" />
+              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest truncate">
+                {photoForm.photoFile ? photoForm.photoFile.name : (editingItem ? "Thay đổi ảnh" : "Chọn ảnh")}
+              </span>
+            </label>
+          </div>
+          <button type="submit" disabled={loading} className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-primary transition-all duration-300">
+            {loading ? "ĐANG TẢI..." : (editingItem ? "CẬP NHẬT" : "THÊM MỚI")}
+          </button>
         </form>
       </Modal>
 
-      <Modal isOpen={isMusicModalOpen} onClose={() => setIsMusicModalOpen(false)} title={editingItem ? "Sửa Bài Hát" : "Thêm Bài Hát"}>
-        <form onSubmit={handleMusicSubmit} className="space-y-4">
-          <input type="text" value={musicForm.title} onChange={e => setMusicForm({...musicForm, title: e.target.value})} placeholder="Tên bài hát" className="w-full p-3 bg-gray-50 rounded-xl outline-none" required />
-          <input type="file" onChange={e => setMusicForm({...musicForm, musicFile: e.target.files?.[0] || null})} className="w-full p-3 bg-gray-50 rounded-xl outline-none" />
-          <button type="submit" disabled={loading} className="w-full py-4 btn-primary-gradient rounded-xl font-bold soft-shadow">{editingItem ? "Cập Nhật" : "Thêm Mới"}</button>
+      <Modal 
+        isOpen={isMusicModalOpen} 
+        onClose={() => setIsMusicModalOpen(false)} 
+        title={editingItem ? "Đổi Giai Điệu" : "Thêm Giai Điệu Mới"}
+        progress={loading ? 100 : 0}
+      >
+        <form onSubmit={handleMusicSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tên bài hát</label>
+            <input type="text" value={musicForm.title} onChange={e => setMusicForm({...musicForm, title: e.target.value})} placeholder="Tựa đề bản nhạc" className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all font-medium text-gray-800" required />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tệp âm thanh</label>
+            <input type="file" onChange={e => setMusicForm({...musicForm, musicFile: e.target.files?.[0] || null})} className="hidden" id="music-file" />
+            <label htmlFor="music-file" className="flex items-center gap-3 p-4 bg-white/30 border border-dashed border-white/50 rounded-2xl cursor-pointer hover:bg-white/50 transition-all">
+              <Music size={18} className="text-gray-400" />
+              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest truncate">
+                {musicForm.musicFile ? musicForm.musicFile.name : "Chọn tệp MP3"}
+              </span>
+            </label>
+          </div>
+          <button type="submit" disabled={loading} className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-primary transition-all duration-300">
+            {loading ? "ĐANG TẢI..." : "LƯU GIAI ĐIỆU"}
+          </button>
         </form>
       </Modal>
     </div>

@@ -61,6 +61,7 @@ export interface Database {
           description: string
           date: string
           photo_url: string
+          location: { lat: number; lng: number; address_name: string } | null
           created_at: string
           updated_at: string
         }
@@ -71,6 +72,7 @@ export interface Database {
           description: string
           date: string
           photo_url: string
+          location?: { lat: number; lng: number; address_name: string } | null
           created_at?: string
           updated_at?: string
         }
@@ -81,6 +83,7 @@ export interface Database {
           description?: string
           date?: string
           photo_url?: string
+          location?: { lat: number; lng: number; address_name: string } | null
           created_at?: string
           updated_at?: string
         }
@@ -165,18 +168,21 @@ export interface Database {
           id: string
           user_id: string
           content: string
+          location: { lat: number; lng: number; address_name: string } | null
           created_at: string
         }
         Insert: {
           id?: string
           user_id: string
           content: string
+          location?: { lat: number; lng: number; address_name: string } | null
           created_at?: string
         }
         Update: {
           id?: string
           user_id?: string
           content?: string
+          location?: { lat: number; lng: number; address_name: string } | null
           created_at?: string
         }
       }

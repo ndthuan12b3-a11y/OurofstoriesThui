@@ -20,6 +20,8 @@ import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 const Gallery = lazy(() => import('./components/Gallery').then(m => ({ default: m.Gallery })));
 const Timeline = lazy(() => import('./components/Timeline').then(m => ({ default: m.Timeline })));
 const Management = lazy(() => import('./components/Management').then(m => ({ default: m.Management })));
+const LoveMoodTracker = lazy(() => import('./components/LoveMoodTracker').then(m => ({ default: m.LoveMoodTracker })));
+const StoryMap = lazy(() => import('./components/StoryMap').then(m => ({ default: m.StoryMap })));
 
 const PRIMARY_CONFIG_ID = '6857068c-7cc5-45ce-8099-23f0e3264251';
 
@@ -46,6 +48,28 @@ export default function App() {
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [passcode, setPasscode] = useState('');
   const [isBgLoaded, setIsBgLoaded] = useState(false);
+  const [events, setEvents] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchEvents = async () => {
+      const { data } = await supabase
+        .from('events')
+        .select('*')
+        .order('date', { ascending: false });
+      if (data) setEvents(data);
+    };
+
+    fetchEvents();
+
+    const channel = supabase
+      .channel('events-global')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, fetchEvents)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -192,9 +216,6 @@ export default function App() {
 
   if (!session) return (
     <div className="min-h-screen">
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-full max-w-md px-4">
-        <BackgroundMusicPlayer active={true} />
-      </div>
       <Auth />
       <Toaster position="top-center" />
     </div>
@@ -296,13 +317,19 @@ export default function App() {
                   <div className="flex items-center justify-center p-12"><div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>
                 }>
                   {activeTab === 'home' && (
-                    <div id="gallery-container">
-                      <Gallery config={config} userRole={userRole} />
+                    <div id="gallery-container" className="space-y-8">
+                       <LoveMoodTracker userRole={userRole} />
+                       <Gallery config={config} userRole={userRole} />
                     </div>
                   )}
                   {activeTab === 'timeline' && (
                     <div id="timeline-container">
                       <Timeline config={config} userRole={userRole} />
+                    </div>
+                  )}
+                  {activeTab === 'map' && (
+                    <div id="map-container" className="animate-fadeIn">
+                      <StoryMap events={events} config={config} />
                     </div>
                   )}
                   {activeTab === 'management' && (userRole === 'admin' || isManagerAuthenticated) && (
@@ -349,21 +376,27 @@ export default function App() {
           isOpen={passcodeModalOpen}
           onClose={() => setPasscodeModalOpen(false)}
           title="Xác Thực Quản Trị"
-          className="max-w-sm"
+          progress={0}
         >
-          <form onSubmit={handlePasscodeSubmit} className="space-y-4 text-center">
-            <p className="text-sm text-gray-500 mb-4">
-              Vui lòng nhập mật khẩu quản lý để tiếp tục.
+          <form onSubmit={handlePasscodeSubmit} className="space-y-6 text-center">
+            <div className="flex justify-center mb-2">
+              <div className="w-16 h-16 rounded-full bg-primary/5 flex items-center justify-center text-primary">
+                <Lock size={32} />
+              </div>
+            </div>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-relaxed">
+              Vùng trời này dành cho những điều đặc biệt.<br/>Vui lòng nhập mật khẩu.
             </p>
             <input
               type="password"
               value={passcode}
               onChange={(e) => setPasscode(e.target.value)}
-              placeholder="Mật khẩu"
-              className="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-primary/20 rounded-2xl outline-none text-center font-bold tracking-widest"
+              placeholder="••••••"
+              className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all text-center font-black tracking-[0.5em] text-lg"
               autoFocus
+              required
             />
-            <button type="submit" className="w-full py-4 btn-primary-gradient rounded-2xl font-bold soft-shadow">
+            <button type="submit" className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-primary transition-all duration-300">
               Xác Nhận
             </button>
           </form>
