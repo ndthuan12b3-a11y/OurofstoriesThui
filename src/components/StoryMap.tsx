@@ -174,13 +174,17 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
     return d.toFixed(2);
   }, [userLocation, otherLocation]);
 
-  // Helper: Reverse Geocode
+  // Helper: Reverse Geocode with simplified logic and rate limit protection
   const getAddress = async (lat: number, lng: number, setter: (addr: string) => void) => {
+    if (!lat || !lng) return;
     try {
+      // Small delay to avoid hitting OpenStreetMap too fast
+      await new Promise(r => setTimeout(r, 1000));
       const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
+      if (!res.ok) return;
       const data = await res.json();
       if (data && data.address) {
-        const addr = data.address.road || data.address.suburb || data.address.city || data.display_name.split(',')[0];
+        const addr = data.address.road || data.address.suburb || data.address.city || data.address.state || data.display_name.split(',')[0];
         setter(addr);
       }
     } catch (e) {
@@ -225,12 +229,24 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
 
     // 1. Setup Realtime Listener for the OTHER person
     const channel = supabase
-      .channel('public:locations')
+      .channel('location-updates')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'locations' },
+        { event: 'INSERT', schema: 'public', table: 'locations' },
         (payload: any) => {
-          const { new: newLoc } = payload;
+          const newLoc = payload.new;
+          if (newLoc && newLoc.user_id !== userId) {
+            setOtherLocation([newLoc.lat, newLoc.lng]);
+            setOtherLastUpdate(newLoc.updated_at);
+            getAddress(newLoc.lat, newLoc.lng, setOtherAddress);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'locations' },
+        (payload: any) => {
+          const newLoc = payload.new;
           if (newLoc && newLoc.user_id !== userId) {
             setOtherLocation([newLoc.lat, newLoc.lng]);
             setOtherLastUpdate(newLoc.updated_at);
@@ -242,28 +258,37 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
 
     // 2. Fetch initial location of other person
     const fetchOtherLocation = async () => {
-      const { data } = await supabase
-        .from('locations')
-        .select('*')
-        .neq('user_id', userId)
-        .order('updated_at', { ascending: false })
-        .limit(1);
-      
-      if (data && data.length > 0) {
-        setOtherLocation([data[0].lat, data[0].lng]);
-        setOtherLastUpdate(data[0].updated_at);
-        getAddress(data[0].lat, data[0].lng, setOtherAddress);
-
-        // Fetch other user's profile avatar
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('avatar_url')
-          .eq('user_id', data[0].user_id)
-          .maybeSingle();
+      try {
+        const { data, error } = await supabase
+          .from('locations')
+          .select('*')
+          .neq('user_id', userId)
+          .order('updated_at', { ascending: false })
+          .limit(1);
         
-        if (profile && profile.avatar_url) {
-          setOtherProfile({ avatar_url: profile.avatar_url });
+        if (error) {
+          console.error("Fetch initial location error:", error);
+          return;
         }
+        
+        if (data && data.length > 0) {
+          setOtherLocation([data[0].lat, data[0].lng]);
+          setOtherLastUpdate(data[0].updated_at || '');
+          getAddress(data[0].lat, data[0].lng, setOtherAddress);
+
+          // Fetch other user's profile avatar
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('avatar_url')
+            .eq('user_id', data[0].user_id)
+            .maybeSingle();
+          
+          if (profile) {
+            setOtherProfile({ avatar_url: profile.avatar_url });
+          }
+        }
+      } catch (err) {
+        console.error("Fetch location failed:", err);
       }
     };
     fetchOtherLocation();
