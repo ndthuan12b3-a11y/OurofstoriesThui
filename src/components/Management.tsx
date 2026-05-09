@@ -192,10 +192,12 @@ export const Management: React.FC<ManagementProps> = ({
       };
 
       if (existingProfile) {
-        // Nếu đã có profile, ưu tiên update theo 'user_id' hoặc 'id' nếu có
+        // Nếu đã có profile, ưu tiên update theo 'user_id'
+        const updateData = { ...profileData };
+        // Nếu record hiện tại có id, giữ nguyên nó
         profileResult = await supabase
           .from('profiles')
-          .update(profileData)
+          .update(updateData)
           .eq('user_id', userId);
       } else {
         // Nếu chưa có, thử insert. 
@@ -204,11 +206,24 @@ export const Management: React.FC<ManagementProps> = ({
           .from('profiles')
           .insert([profileData]);
           
-        if (profileResult.error && profileResult.error.code === '23502' && profileResult.error.message.includes('"id"')) {
-          // Fallback: Thử insert với id = user_id
+        if (profileResult.error && profileResult.error.code === '23502' && (profileResult.error.message.includes('"id"') || profileResult.error.message.includes("'id'"))) {
+          // Thử insert với id = user_id
           profileResult = await supabase
             .from('profiles')
             .insert([{ ...profileData, id: userId }]);
+            
+          if (profileResult.error) {
+            // Cuối cùng thử với một UUID ngẫu nhiên nếu user_id không khớp kiểu dữ liệu id
+            try {
+              const randomId = window.crypto.randomUUID();
+              profileResult = await supabase
+                .from('profiles')
+                .insert([{ ...profileData, id: randomId }]);
+            } catch (e) {
+              // Nếu crypto.randomUUID không khả dụng
+              console.error("No randomUUID support", e);
+            }
+          }
         }
       }
 
@@ -221,7 +236,8 @@ export const Management: React.FC<ManagementProps> = ({
       onProfileUpdate?.();
     } catch (error: any) {
       console.error("Lỗi cập nhật profile:", error);
-      showNotification("Lỗi cập nhật ảnh đại diện!", true);
+      const errorMsg = error.message || "Vui lòng thử lại";
+      showNotification(`Lỗi cập nhật: ${errorMsg}`, true);
     } finally {
       setLoading(false);
     }
@@ -449,7 +465,8 @@ export const Management: React.FC<ManagementProps> = ({
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
     
-    const fileName = `${Date.now()}_${file.name}`;
+    const safeName = file.name.replace(/[^a-z0-9.]/gi, '_').toLowerCase();
+    const fileName = `${Date.now()}_${safeName}`;
     const filePath = `${user.id}/${folder}/${fileName}`;
     
     const { error: uploadError } = await supabase.storage

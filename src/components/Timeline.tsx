@@ -89,6 +89,7 @@ const EventItem = React.memo(({ event, index, onClick }: { event: Event; index: 
 export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadForm, setUploadForm] = useState({ 
@@ -187,6 +188,22 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
 
     fetchEvents();
     fetchStories();
+
+    // Fetch current profile avatar
+    const fetchProfile = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('avatar_url')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (data && data.avatar_url) {
+          setProfileAvatar(data.avatar_url);
+        }
+      }
+    };
+    fetchProfile();
 
     const channel = supabase
       .channel('events-changes')
@@ -317,7 +334,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
           >
             <div className="w-20 h-20 md:w-24 md:h-24 rounded-3xl overflow-hidden border-2 border-white shadow-lg -rotate-3 hover:rotate-0 transition-transform duration-500">
               <img
-                src={getOptimizedImageUrl(config.avatar_url || "https://placehold.co/200x200/fcc4d6/333?text=Love", 400)}
+                src={getOptimizedImageUrl(profileAvatar || config.avatar_url || "https://placehold.co/200x200/fcc4d6/333?text=Love", 400)}
                 alt="Couple"
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
