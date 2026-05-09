@@ -288,23 +288,27 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId }) =>
   };
 
   return (
-    <div className={`relative transition-all duration-500 overflow-hidden flex flex-col md:flex-row ${isFullscreen ? 'fixed inset-0 z-[1500] h-screen w-screen' : 'h-[700px] sm:h-[600px] md:h-[700px] rounded-[3rem] shadow-2xl border border-white/50 bg-white/40 backdrop-blur-xl'}`}>
+    <div className={`relative transition-all duration-500 overflow-hidden flex flex-col md:flex-row ${isFullscreen ? 'fixed inset-0 z-[1500] h-[100dvh] w-screen bg-white' : 'h-[600px] md:h-[700px] rounded-[3rem] shadow-2xl border border-white/50 bg-white/40 backdrop-blur-xl'}`}>
       
-      {/* Memories List - Desktop Sidebar / Mobile Bottom Sheet */}
+      {/* Memories List - Responsive Layout */}
       <motion.div 
         initial={false}
         animate={{ 
-          width: showList ? (isFullscreen ? '300px' : '260px') : '0px',
-          height: showList && window.innerWidth < 768 ? '260px' : '100%',
-          opacity: showList ? 1 : 0
+          width: window.innerWidth >= 768 ? (showList ? (isFullscreen ? '300px' : '260px') : '0px') : '100%',
+          height: window.innerWidth < 768 ? (showList ? '280px' : '0px') : '100%',
+          opacity: showList ? 1 : 0,
+          display: !showList && window.innerWidth >= 768 ? 'none' : 'flex'
         }}
-        className="relative bg-white/30 backdrop-blur-2xl border-r border-white/30 overflow-hidden flex flex-col z-10 shrink-0"
+        className="relative bg-white/50 backdrop-blur-2xl border-r md:border-r border-b md:border-b-0 border-white/30 overflow-hidden flex flex-col z-10 shrink-0"
       >
-        <div className="p-4 border-b border-white/20">
+        <div className="p-4 border-b border-white/20 flex items-center justify-between">
           <h3 className="text-xs font-black text-gray-800 uppercase tracking-tight flex items-center gap-2">
             <Zap size={14} className="text-rose-500 fill-rose-500 animate-pulse" />
             Live & Kỷ niệm
           </h3>
+          <button onClick={() => setShowList(false)} className="md:hidden p-1 text-gray-400">
+            <X size={16} />
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
           {/* Live Section */}
