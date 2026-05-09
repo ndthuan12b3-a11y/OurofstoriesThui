@@ -319,16 +319,37 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
     
     const updateLocationInDB = async (lat: number, lng: number) => {
       try {
-        const { error } = await supabase.from('locations').upsert({
+        const timestamp = new Date().toISOString();
+        
+        // Luôn thử upsert trước
+        const { error: upsertError } = await supabase.from('locations').upsert({
           user_id: userId,
           lat: lat,
           lng: lng,
-          updated_at: new Date().toISOString()
+          updated_at: timestamp
         }, { onConflict: 'user_id' });
         
-        if (error) {
-          console.error("Error updating location in DB:", error);
-          if (error.code === '42P01') {
+        // Nếu lỗi 42P10 (thiếu unique constraint), chuyển sang logic Update/Insert thủ công
+        if (upsertError && upsertError.code === '42P10') {
+          const { data: existing } = await supabase
+            .from('locations')
+            .select('user_id')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          if (existing) {
+            await supabase
+              .from('locations')
+              .update({ lat, lng, updated_at: timestamp })
+              .eq('user_id', userId);
+          } else {
+            await supabase
+              .from('locations')
+              .insert({ user_id: userId, lat, lng, updated_at: timestamp });
+          }
+        } else if (upsertError) {
+          console.error("Error updating location in DB:", upsertError);
+          if (upsertError.code === '42P01') {
             showNotification("Cơ sở dữ liệu Map chưa được khởi tạo. Vui lòng chạy SQL fix.", true);
           }
         }
