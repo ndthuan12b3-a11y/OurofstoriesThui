@@ -114,6 +114,18 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
     }
   }, [photos]);
 
+  // Detail Modal Scroll Lock
+  useEffect(() => {
+    if (selectedPhoto) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [selectedPhoto]);
+
   const totalPages = Math.ceil(filteredPhotos.length / PHOTOS_PER_PAGE);
   const currentPhotos = filteredPhotos.slice(
     (currentPage - 1) * PHOTOS_PER_PAGE,
@@ -400,13 +412,13 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
       {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
           {selectedPhoto && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[4000] flex items-center justify-center p-0 md:p-4 overflow-hidden bg-black/95 backdrop-blur-xl">
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setSelectedPhoto(null)}
-                className="absolute inset-0 bg-black/95 backdrop-blur-xl"
+                className="absolute inset-0 cursor-pointer"
               />
               
               {/* Navigation Buttons */}
@@ -440,10 +452,10 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
               </div>
 
               <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                className="relative max-w-6xl w-full bg-white rounded-[2.5rem] overflow-hidden shadow-2xl z-10"
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="relative max-w-6xl w-full h-full md:h-auto md:max-h-[90vh] bg-white md:rounded-[2.5rem] overflow-hidden shadow-2xl z-10 flex flex-col"
               >
                 <button
                   onClick={() => setSelectedPhoto(null)}

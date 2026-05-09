@@ -293,6 +293,18 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
 
   const days = calculateDays(config.start_date);
 
+  // Detail Modal Scroll Lock
+  useEffect(() => {
+    if (selectedEvent) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [selectedEvent]);
+
   return (
     <div className="max-w-4xl mx-auto px-4 pb-32 md:pb-20 animate-fadeIn">
       {/* HUD Header - Modern & Compact */}
@@ -481,13 +493,13 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
       {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
           {selectedEvent && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[4000] flex items-center justify-center p-0 md:p-4 overflow-hidden bg-black/95 backdrop-blur-xl">
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setSelectedEvent(null)}
-                className="absolute inset-0 bg-black/95 backdrop-blur-xl"
+                className="absolute inset-0 cursor-pointer"
               />
               
               {/* Navigation Buttons */}
@@ -521,10 +533,10 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
               </div>
 
               <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                className="relative max-w-6xl w-full bg-white rounded-[2.5rem] overflow-hidden shadow-2xl z-10"
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="relative max-w-6xl w-full h-full md:h-auto md:max-h-[90vh] bg-white md:rounded-[2.5rem] overflow-hidden shadow-2xl z-10 flex flex-col"
               >
                 <button
                   onClick={() => setSelectedEvent(null)}

@@ -62,12 +62,9 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
   };
 
   useEffect(() => {
-    // Automatically ask for location if no location is selected yet
-    if (value.lat === 10.7769 && value.lng === 106.7009 && !isSearching) {
-      const shouldDetect = window.confirm("Bạn có muốn sử dụng vị trí hiện tại để tìm kiếm địa điểm dễ dàng hơn không?");
-      if (shouldDetect) {
-        handleCurrentLocation();
-      }
+    // Automatically detect current location on start if no custom value is provided
+    if (!value && !isSearching) {
+      handleCurrentLocation();
     }
   }, []);
 

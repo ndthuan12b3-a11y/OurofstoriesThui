@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -25,16 +26,18 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
     };
   }, [isOpen]);
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 overflow-y-auto bg-black/50 backdrop-blur-sm">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+            className="absolute inset-0 cursor-pointer"
           />
           <motion.div
             initial={{ opacity: 0, scale: 0.9, y: 10 }}
@@ -45,7 +48,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
             onMouseDown={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
             className={cn(
-              "relative w-full max-w-xl glassmorphism shadow-2xl overflow-hidden my-8 sm:my-16 mx-auto z-10",
+              "relative w-full max-w-xl glassmorphism shadow-2xl overflow-hidden my-auto mx-auto z-10",
               "border-white/40 ring-1 ring-black/5",
               className
             )}
@@ -82,6 +85,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 };

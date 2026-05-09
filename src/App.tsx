@@ -329,7 +329,7 @@ export default function App() {
                   )}
                   {activeTab === 'map' && (
                     <div id="map-container" className="animate-fadeIn">
-                      <StoryMap events={events} config={config} />
+                      <StoryMap events={events} config={config} userId={session.user.id} />
                     </div>
                   )}
                   {activeTab === 'management' && (userRole === 'admin' || isManagerAuthenticated) && (
