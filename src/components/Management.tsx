@@ -186,48 +186,27 @@ export const Management: React.FC<ManagementProps> = ({
 
       let profileResult;
       const profileData = {
+        id: userId,
         user_id: userId,
         avatar_url: avatarUrl,
         updated_at: new Date().toISOString()
       };
 
-      if (existingProfile) {
-        // Nếu đã có profile, ưu tiên update theo 'user_id'
-        const updateData = { ...profileData };
-        // Nếu record hiện tại có id, giữ nguyên nó
+      // Thử upsert dựa trên Primary Key 'id' (luôn là cách an toàn nhất)
+      profileResult = await supabase
+        .from('profiles')
+        .upsert(profileData, { onConflict: 'id' });
+
+      if (profileResult.error) {
+        console.warn("UPSERT on 'id' failed, trying on 'user_id'...", profileResult.error);
+        // Fallback: Nếu cấu trúc cũ yêu cầu 'user_id' làm key duy nhất
         profileResult = await supabase
           .from('profiles')
-          .update(updateData)
-          .eq('user_id', userId);
-      } else {
-        // Nếu chưa có, thử insert. 
-        // Nếu lỗi "null id", ta sẽ thử gán user_id vào luôn id nếu id là UUID
-        profileResult = await supabase
-          .from('profiles')
-          .insert([profileData]);
-          
-        if (profileResult.error && profileResult.error.code === '23502' && (profileResult.error.message.includes('"id"') || profileResult.error.message.includes("'id'"))) {
-          // Thử insert với id = user_id
-          profileResult = await supabase
-            .from('profiles')
-            .insert([{ ...profileData, id: userId }]);
-            
-          if (profileResult.error) {
-            // Cuối cùng thử với một UUID ngẫu nhiên nếu user_id không khớp kiểu dữ liệu id
-            try {
-              const randomId = window.crypto.randomUUID();
-              profileResult = await supabase
-                .from('profiles')
-                .insert([{ ...profileData, id: randomId }]);
-            } catch (e) {
-              // Nếu crypto.randomUUID không khả dụng
-              console.error("No randomUUID support", e);
-            }
-          }
-        }
+          .upsert(profileData, { onConflict: 'user_id' });
       }
 
       if (profileResult.error) {
+        console.error("Critical error updating profile:", profileResult.error);
         throw profileResult.error;
       }
 
