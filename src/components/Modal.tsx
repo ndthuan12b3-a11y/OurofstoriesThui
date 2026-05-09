@@ -27,40 +27,44 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center overflow-hidden">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 bg-black/60 backdrop-blur-md"
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            initial={{ opacity: 0, y: "100%", scale: 1 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: "100%", scale: 1 }}
+            transition={{ type: "spring", damping: 25, stiffness: 200 }}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
             className={cn(
-              "relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden z-10 flex flex-col max-h-[90vh]",
+              "relative w-full sm:max-w-xl bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden z-10 flex flex-col max-h-[92dvh] sm:max-h-[90vh]",
               className
             )}
           >
-            <div className="flex items-center justify-between p-5 border-b bg-white shrink-0">
-              <h2 className="text-xl font-black text-gray-800 tracking-tight">{title}</h2>
+            {/* Mobile Handle Barrier */}
+            <div className="sm:hidden w-12 h-1.5 bg-gray-200 rounded-full mx-auto mt-3 shrink-0" />
+            
+            <div className="flex items-center justify-between p-6 sm:p-7 border-b bg-white shrink-0">
+              <h2 className="text-xl sm:text-2xl font-black text-gray-800 tracking-tight">{title}</h2>
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onClose();
                 }}
-                className="p-2 text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                className="p-2.5 text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded-2xl transition-all"
               >
-                <X size={24} />
+                <X size={26} />
               </button>
             </div>
-            <div className="p-6 overflow-y-auto custom-scrollbar">
+            <div className="p-6 sm:p-8 overflow-y-auto custom-scrollbar grow pb-10 sm:pb-8">
               {children}
             </div>
           </motion.div>
