@@ -81,11 +81,19 @@ const ZoomControl = () => {
   );
 };
 
+// Helper to validate coordinates
+const isValidCoords = (coords: any): coords is [number, number] => {
+  return Array.isArray(coords) && 
+         coords.length === 2 && 
+         typeof coords[0] === 'number' && !isNaN(coords[0]) &&
+         typeof coords[1] === 'number' && !isNaN(coords[1]);
+};
+
 // Component to handle external "FlyTo" commands
 const FlyToController = ({ target }: { target: [number, number] | null }) => {
   const map = useMap();
   React.useEffect(() => {
-    if (target) {
+    if (target && isValidCoords(target)) {
       map.flyTo(target, 17, {
         duration: 2,
         easeLinearity: 0.25
@@ -121,21 +129,30 @@ const MapController = ({
   React.useEffect(() => {
     // Only fit bounds if we don't have a specific event selected for flyTo
     const points: [number, number][] = [];
-    if (userLocation) points.push(userLocation);
-    if (otherLocation) points.push(otherLocation);
+    if (userLocation && isValidCoords(userLocation)) points.push(userLocation);
+    if (otherLocation && isValidCoords(otherLocation)) points.push(otherLocation);
     
     // Fallback to map items if no live locations
     if (points.length === 0 && mapItems.length > 0) {
       mapItems.forEach(item => {
         if (item.location?.lat && item.location?.lng) {
-          points.push([item.location.lat, item.location.lng]);
+          const p: [number, number] = [item.location.lat, item.location.lng];
+          if (isValidCoords(p)) {
+            points.push(p);
+          }
         }
       });
     }
 
     if (points.length > 0) {
-      const bounds = L.latLngBounds(points);
-      map.fitBounds(bounds, { padding: [100, 100], maxZoom: 15 });
+      try {
+        const bounds = L.latLngBounds(points);
+        if (bounds.isValid()) {
+          map.fitBounds(bounds, { padding: [100, 100], maxZoom: 15 });
+        }
+      } catch (e) {
+        console.error("Error fitting bounds:", e);
+      }
     }
   }, [userLocation, otherLocation, map, mapItems]);
 
@@ -192,9 +209,14 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
     }
   };
 
-  // Filter items that have location
+  // Filter items that have location and valid coordinates
   const mapItems = useMemo(() => {
-    return events.filter(e => e.location && typeof e.location.lat === 'number');
+    return events.filter(e => {
+      if (!e.location) return false;
+      const lat = Number(e.location.lat);
+      const lng = Number(e.location.lng);
+      return !isNaN(lat) && !isNaN(lng);
+    });
   }, [events]);
 
   // Screen Wake Lock to keep the map alive
@@ -619,7 +641,9 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
             maxClusterRadius={50}
           >
             {mapItems.map((item) => {
-              const pos: [number, number] = [item.location!.lat, item.location!.lng];
+              const pos: [number, number] = [Number(item.location!.lat), Number(item.location!.lng)];
+              if (!isValidCoords(pos)) return null;
+              
               return (
                 <Marker 
                   key={item.id} 
@@ -666,7 +690,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           </MarkerClusterGroup>
 
           {/* Live Markers */}
-          {userLocation && typeof userLocation[0] === 'number' && typeof userLocation[1] === 'number' && (
+          {userLocation && isValidCoords(userLocation) && (
             <CustomMarker 
               position={userLocation} 
               imageUrl={userProfile?.avatar_url || 'https://placehold.co/100x100?text=Me'} 
@@ -674,7 +698,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
               label={`Bạn ${userAddress ? `(${userAddress})` : ''}`}
             />
           )}
-          {otherLocation && typeof otherLocation[0] === 'number' && typeof otherLocation[1] === 'number' && (
+          {otherLocation && isValidCoords(otherLocation) && (
             <CustomMarker 
               position={otherLocation} 
               imageUrl={otherProfile?.avatar_url || config.avatar_url || 'https://placehold.co/100x100?text=❤️'} 
