@@ -27,40 +27,40 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -20 }}
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -20 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
             className={cn(
-              "relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden my-8 sm:my-16 mx-auto z-10",
+              "relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden z-10 flex flex-col max-h-[90vh]",
               className
             )}
           >
-            <div className="flex items-center justify-between p-4 border-b bg-white">
-              <h2 className="text-xl font-bold text-gray-800">{title}</h2>
+            <div className="flex items-center justify-between p-5 border-b bg-white shrink-0">
+              <h2 className="text-xl font-black text-gray-800 tracking-tight">{title}</h2>
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onClose();
                 }}
-                className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                className="p-2 text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
               >
                 <X size={24} />
               </button>
             </div>
-            <div className="p-6 max-h-[80vh] overflow-y-auto">
+            <div className="p-6 overflow-y-auto custom-scrollbar">
               {children}
             </div>
           </motion.div>
