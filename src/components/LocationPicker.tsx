@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import { Icon, LeafletMouseEvent } from 'leaflet';
-import { Search, MapPin, X } from 'lucide-react';
+import { Search, MapPin, X, Navigation } from 'lucide-react';
 
 // Fix for default Leaflet icon inclusion
 const defaultIcon = new Icon({
@@ -61,7 +61,14 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
     if (!searchQuery.trim()) return;
     setIsSearching(true);
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`);
+      let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=10`;
+      
+      // Bias search results toward map center (current location or last selected)
+      const bias = 0.5; // ~50km radius bias
+      const viewbox = `${mapCenter[1] - bias},${mapCenter[0] + bias},${mapCenter[1] + bias},${mapCenter[0] - bias}`;
+      url += `&viewbox=${viewbox}`;
+
+      const res = await fetch(url);
       const data = await res.json();
       setSearchResults(data);
     } catch (error) {
@@ -69,6 +76,41 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
     } finally {
       setIsSearching(false);
     }
+  };
+
+  const handleCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Trình duyệt của bạn không hỗ trợ định vị.");
+      return;
+    }
+
+    setIsSearching(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setMapCenter([latitude, longitude]);
+        
+        // Reverse geocode
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
+          .then(res => res.json())
+          .then(data => {
+            const address = data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+            onChange({ lat: latitude, lng: longitude, address_name: address });
+          })
+          .catch(() => {
+            onChange({ lat: latitude, lng: longitude, address_name: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}` });
+          })
+          .finally(() => {
+            setIsSearching(false);
+          });
+      },
+      (error) => {
+        console.error("Geolocation error:", error);
+        alert("Không thể lấy vị trí hiện tại của bạn.");
+        setIsSearching(false);
+      },
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+    );
   };
 
   const selectResult = (result: any) => {
@@ -105,6 +147,14 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
             className="p-3 bg-gray-900 text-white rounded-xl hover:bg-primary transition-colors"
           >
             <Search size={18} />
+          </button>
+          <button
+            type="button"
+            onClick={handleCurrentLocation}
+            className="p-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors"
+            title="Lấy vị trí hiện tại"
+          >
+            <Navigation size={18} />
           </button>
         </div>
 
