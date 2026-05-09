@@ -25,7 +25,9 @@ interface LocationPickerProps {
 const ChangeView = ({ center }: { center: [number, number] }) => {
   const map = useMap();
   useEffect(() => {
-    map.setView(center);
+    map.flyTo(center, 15, {
+      duration: 1.5
+    });
   }, [center, map]);
   return null;
 };
@@ -48,14 +50,26 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
           .then(data => {
             const address = data.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
             onChange({ lat, lng, address_name: address });
+            setMapCenter([lat, lng]);
           })
           .catch(() => {
             onChange({ lat, lng, address_name: `${lat.toFixed(4)}, ${lng.toFixed(4)}` });
+            setMapCenter([lat, lng]);
           });
       },
     });
     return null;
   };
+
+  useEffect(() => {
+    // Automatically ask for location if no location is selected yet
+    if (value.lat === 10.7769 && value.lng === 106.7009 && !isSearching) {
+      const shouldDetect = window.confirm("Bạn có muốn sử dụng vị trí hiện tại để tìm kiếm địa điểm dễ dàng hơn không?");
+      if (shouldDetect) {
+        handleCurrentLocation();
+      }
+    }
+  }, []);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -63,16 +77,29 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
     try {
       let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=10`;
       
-      // Bias search results toward map center (current location or last selected)
-      const bias = 0.5; // ~50km radius bias
+      // Bias search results toward map center
+      const bias = 1.0; 
       const viewbox = `${mapCenter[1] - bias},${mapCenter[0] + bias},${mapCenter[1] + bias},${mapCenter[0] - bias}`;
       url += `&viewbox=${viewbox}`;
 
       const res = await fetch(url);
       const data = await res.json();
       setSearchResults(data);
+
+      // If results found, move to the first result automatically
+      if (data && data.length > 0) {
+        const first = data[0];
+        const lat = parseFloat(first.lat);
+        const lng = parseFloat(first.lon);
+        setMapCenter([lat, lng]);
+        // Also update value if user just hit search to make it easier
+        onChange({ lat, lng, address_name: first.display_name });
+      } else {
+        alert("Không tìm thấy địa điểm này.");
+      }
     } catch (error) {
       console.error('Search error:', error);
+      alert("Lỗi khi tìm kiếm địa điểm.");
     } finally {
       setIsSearching(false);
     }
@@ -80,7 +107,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
 
   const handleCurrentLocation = () => {
     if (!navigator.geolocation) {
-      alert("Trình duyệt của bạn không hỗ trợ định vị.");
+      alert("Trình duyệt của bạn không hỗ trợ định vị. Vui lòng kiểm tra cài đặt trình duyệt.");
       return;
     }
 
@@ -106,10 +133,16 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
       },
       (error) => {
         console.error("Geolocation error:", error);
-        alert("Không thể lấy vị trí hiện tại của bạn.");
+        let message = "Không thể lấy vị trí hiện tại của bạn.";
+        if (error.code === error.PERMISSION_DENIED) {
+          message = "Bạn đã từ chối quyền truy cập vị trí. Vui lòng bật GPS và cho phép truy cập vị trí trong cài đặt trình duyệt.";
+        } else if (error.code === error.TIMEOUT) {
+          message = "Yêu cầu định vị quá hạn. Vui lòng thử lại.";
+        }
+        alert(message);
         setIsSearching(false);
       },
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
