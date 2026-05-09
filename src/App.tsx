@@ -149,41 +149,53 @@ export default function App() {
   const fetchUserRole = async (userId: string, showLoading = true) => {
     if (showLoading) setLoadingRole(true);
     try {
+      // Thử dùng user_id, nếu không được thì trả về mặc định
       const { data, error } = await supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
         .maybeSingle() as any;
       
-      if (error) throw error;
+      if (error) {
+        if (error.code === '42703') { // Cột user_id không tồn tại
+          console.warn("Cơ sở dữ liệu thiếu cột 'user_id' trong bảng user_roles. Vui lòng chạy SQL sửa lỗi.");
+          setUserRole('none');
+          return;
+        }
+        throw error;
+      }
 
       const role = data ? data.role : 'none';
       setUserRole(role);
       (window as any).userRole = role; 
     } catch (error: any) {
-      console.error("Lỗi khi tải quyền người dùng:", error);
-      if (error.message?.includes('Invalid Refresh Token') || error.message?.includes('refresh_token_not_found')) {
-        supabase.auth.signOut();
-      }
+      console.error("Lỗi quyền người dùng:", error);
       setUserRole('none');
-      (window as any).userRole = 'none';
     } finally {
       if (showLoading) setLoadingRole(false);
     }
   };
 
   const fetchUserProfile = async (userId: string) => {
+    if (!userId) return;
     try {
       const { data, error } = await supabase
-        .from('config')
-        .select('id, avatar_url')
+        .from('profiles')
+        .select('*')
         .eq('user_id', userId)
         .maybeSingle();
       
+      if (error) {
+        if (error.code === 'PGRST204' || error.message.includes('avatar_url')) {
+          console.warn("Bảng 'profiles' thiếu cột 'avatar_url'.");
+          setUserProfile({ id: userId, avatar_url: null });
+          return;
+        }
+      }
+      
       if (data) {
-        setUserProfile({ id: data.id, avatar_url: data.avatar_url });
+        setUserProfile({ id: data.user_id || userId, avatar_url: data.avatar_url });
       } else {
-        // Nếu chưa có profile riêng, tạo bản ghi mặc định hoặc để null
         setUserProfile({ id: userId, avatar_url: null });
       }
     } catch (error) {
@@ -191,15 +203,51 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (session?.user.id) {
+      fetchUserRole(session.user.id);
+      fetchUserProfile(session.user.id);
+    }
+  }, [session]);
+
   const fetchConfig = async () => {
-    const { data } = await supabase
-      .from('config')
-      .select('*')
-      .eq('user_id', PRIMARY_CONFIG_ID)
-      .single() as any;
-    if (data) {
-      setConfig(data);
-      document.documentElement.style.setProperty('--primary-color', data.primary_color);
+    try {
+      const { data, error } = await supabase
+        .from('config')
+        .select('*')
+        .eq('user_id', PRIMARY_CONFIG_ID)
+        .single();
+      
+      if (error) {
+        if (error.code === '42703' || error.message.includes('user_id')) {
+           console.warn("Cơ sở dữ liệu thiếu cột 'user_id' trong bảng config. Đang lấy bản ghi mặc định...");
+           const { data: fallbackData } = await supabase.from('config').select('*').limit(1).maybeSingle();
+           if (fallbackData) {
+             setConfig(fallbackData);
+             if (fallbackData.primary_color) {
+               document.documentElement.style.setProperty('--primary-color', fallbackData.primary_color);
+             }
+           }
+           return;
+        }
+        throw error;
+      }
+      
+      if (data) {
+        setConfig(data);
+        if (data.primary_color) {
+          document.documentElement.style.setProperty('--primary-color', data.primary_color);
+        }
+      }
+    } catch (e) {
+      console.error("Lỗi khi tải cấu hình:", e);
+    }
+  };
+
+  const handleConfigUpdate = async () => {
+    await fetchConfig();
+    if (session?.user?.id) {
+      await fetchUserProfile(session.user.id);
     }
   };
 
@@ -372,10 +420,10 @@ export default function App() {
                     <Management 
                       userRole={userRole} 
                       config={config} 
-                      onConfigUpdate={fetchConfig} 
+                      onConfigUpdate={handleConfigUpdate} 
                       userId={session?.user?.id}
                       userProfile={userProfile}
-                      onProfileUpdate={() => fetchUserProfile(session?.user?.id)}
+                      onProfileUpdate={handleConfigUpdate}
                     />
                   )}
                   {activeTab === 'management' && userRole === 'none' && !isManagerAuthenticated && (

@@ -163,6 +163,43 @@ export interface Database {
           created_at?: string
         }
       }
+      profiles: {
+        Row: {
+          user_id: string
+          avatar_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          avatar_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          avatar_url?: string | null
+          updated_at?: string
+        }
+      }
+      locations: {
+        Row: {
+          user_id: string
+          lat: number
+          lng: number
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          lat: number
+          lng: number
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          lat?: number
+          lng?: number
+          updated_at?: string
+        }
+      }
       stories: {
         Row: {
           id: string

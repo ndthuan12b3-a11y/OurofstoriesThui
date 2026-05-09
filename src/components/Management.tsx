@@ -144,6 +144,17 @@ export const Management: React.FC<ManagementProps> = ({
   const [photoForm, setPhotoForm] = useState({ description: '', tags: '', photoFile: null as File | null });
   const [musicForm, setMusicForm] = useState({ title: '', musicFile: null as File | null });
   const [personalAvatarFile, setPersonalAvatarFile] = useState<File | null>(null);
+  const [personalAvatarPreview, setPersonalAvatarPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (personalAvatarFile) {
+      const url = URL.createObjectURL(personalAvatarFile);
+      setPersonalAvatarPreview(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setPersonalAvatarPreview(null);
+    }
+  }, [personalAvatarFile]);
 
   const handlePersonalProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,26 +168,57 @@ export const Management: React.FC<ManagementProps> = ({
         if (url) avatarUrl = url;
       }
 
-      // Upsert into config table for this specific user
-      const { error } = await supabase.from('config').upsert({
+      // Thử lấy profile hiện tại để lấy 'id' nếu có
+      const { data: existingProfile, error: fetchError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (fetchError) {
+        if (fetchError.code === 'PGRST204' || fetchError.message.includes('avatar_url')) {
+          console.error("Database structure mismatch for profiles table.");
+          showNotification("Cần cập nhật Database để dùng ảnh đại diện. Vui lòng chạy SQL fix.", true);
+          return;
+        }
+        throw fetchError;
+      }
+
+      let profileResult;
+      const profileData = {
         user_id: userId,
         avatar_url: avatarUrl,
-        // Cần đảm bảo các trường required khác nếu có, nhưng thường là default if not present
-        // Tuy nhiên config table có nhiều trường. Ta chỉ update những gì ta có.
-        // Để an toàn, ta dùng select rồi update hoặc upsert subset.
-        start_date: config.start_date,
-        name_male: config.name_male,
-        name_female: config.name_female,
-        primary_color: config.primary_color,
-        main_title: config.main_title,
-        main_subtitle: config.main_subtitle,
-      }, { onConflict: 'user_id' });
+        updated_at: new Date().toISOString()
+      };
 
-      if (error) throw error;
+      if (existingProfile) {
+        // Nếu đã có profile, ưu tiên update theo 'user_id' hoặc 'id' nếu có
+        profileResult = await supabase
+          .from('profiles')
+          .update(profileData)
+          .eq('user_id', userId);
+      } else {
+        // Nếu chưa có, thử insert. 
+        // Nếu lỗi "null id", ta sẽ thử gán user_id vào luôn id nếu id là UUID
+        profileResult = await supabase
+          .from('profiles')
+          .insert([profileData]);
+          
+        if (profileResult.error && profileResult.error.code === '23502' && profileResult.error.message.includes('"id"')) {
+          // Fallback: Thử insert với id = user_id
+          profileResult = await supabase
+            .from('profiles')
+            .insert([{ ...profileData, id: userId }]);
+        }
+      }
 
+      if (profileResult.error) {
+        throw profileResult.error;
+      }
+
+      setPersonalAvatarFile(null); // Xóa file cục bộ để hiển thị ảnh mới từ server
       showNotification("Cập nhật ảnh đại diện thành công!");
       onProfileUpdate?.();
-      setPersonalAvatarFile(null);
     } catch (error: any) {
       console.error("Lỗi cập nhật profile:", error);
       showNotification("Lỗi cập nhật ảnh đại diện!", true);
@@ -560,13 +602,18 @@ export const Management: React.FC<ManagementProps> = ({
             {/* Personal Profile Section */}
             <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-rose-100 flex flex-col md:flex-row items-center gap-8">
               <div className="relative group shrink-0">
-                <div className="w-32 h-32 rounded-[2rem] overflow-hidden shadow-2xl border-4 border-white group-hover:opacity-90 transition-opacity">
+                <div className="w-32 h-32 rounded-[2rem] overflow-hidden shadow-2xl border-4 border-white group-hover:opacity-90 transition-opacity bg-gray-50">
                   <img 
-                    src={userProfile?.avatar_url || 'https://placehold.co/150x150?text=Avatar'} 
+                    src={personalAvatarPreview || userProfile?.avatar_url || 'https://placehold.co/150x150?text=Avatar'} 
                     className="w-full h-full object-cover" 
                     alt="Personal Avatar" 
                     referrerPolicy="no-referrer"
                   />
+                  {loading && (
+                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                      <RefreshCw size={24} className="text-white animate-spin" />
+                    </div>
+                  )}
                 </div>
                 <input 
                   type="file" 

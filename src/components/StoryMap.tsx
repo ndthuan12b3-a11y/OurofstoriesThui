@@ -8,6 +8,7 @@ import { AppConfig, Database } from '../types';
 import { getOptimizedImageUrl } from '../lib/imageUtils';
 import { supabase } from '../lib/supabase';
 import { usePresence } from '../lib/PresenceContext';
+import { showNotification } from '../lib/notifications';
 
 type Event = Database['public']['Tables']['events']['Row'];
 
@@ -20,8 +21,14 @@ const defaultIcon = new Icon({
 });
 
 // Custom marker with image
-const createCustomIcon = (imageUrl: string, isOffline: boolean = false) => {
-  return divIcon({
+const CustomMarker = ({ position, imageUrl, isOffline, label, animate = true }: { 
+  position: [number, number], 
+  imageUrl: string, 
+  isOffline?: boolean, 
+  label: string,
+  animate?: boolean
+}) => {
+  const icon = useMemo(() => divIcon({
     className: 'custom-marker',
     html: `
       <div class="relative w-10 h-10 group ${isOffline ? 'opacity-60 grayscale-[0.5] blur-[0.5px]' : ''}">
@@ -34,7 +41,17 @@ const createCustomIcon = (imageUrl: string, isOffline: boolean = false) => {
     `,
     iconSize: [40, 40],
     iconAnchor: [20, 40]
-  });
+  }), [imageUrl, isOffline]);
+
+  return (
+    <Marker position={position} icon={icon}>
+      <Popup>
+        <div className="text-center font-bold text-gray-800">
+          {label}
+        </div>
+      </Popup>
+    </Marker>
+  );
 };
 
 interface StoryMapProps {
@@ -133,9 +150,43 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   const [flyToCoords, setFlyToCoords] = useState<[number, number] | null>(null);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [otherLocation, setOtherLocation] = useState<[number, number] | null>(null);
-  const [otherProfile, setOtherProfile] = useState<{ avatar_url: string | null } | null>(null);
+  const [userAddress, setUserAddress] = useState<string>('');
+  const [otherAddress, setOtherAddress] = useState<string>('');
+  const [otherLastUpdate, setOtherLastUpdate] = useState<string>('');
+  const [otherProfile, setOtherProfile] = useState<{ avatar_url: string | null, name?: string } | null>(null);
   const lastUpdateRef = React.useRef<number>(0);
   const lastPosRef = React.useRef<[number, number] | null>(null);
+
+  // Helper: Calculate distance in KM
+  const distance = useMemo(() => {
+    if (!userLocation || !otherLocation) return null;
+    const [lat1, lon1] = userLocation;
+    const [lat2, lon2] = otherLocation;
+    const R = 6371; // Radius of the earth in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const d = R * c;
+    return d.toFixed(2);
+  }, [userLocation, otherLocation]);
+
+  // Helper: Reverse Geocode
+  const getAddress = async (lat: number, lng: number, setter: (addr: string) => void) => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
+      const data = await res.json();
+      if (data && data.address) {
+        const addr = data.address.road || data.address.suburb || data.address.city || data.display_name.split(',')[0];
+        setter(addr);
+      }
+    } catch (e) {
+      console.error("Geocoding failed", e);
+    }
+  };
 
   // Filter items that have location
   const mapItems = useMemo(() => {
@@ -182,6 +233,8 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           const { new: newLoc } = payload;
           if (newLoc && newLoc.user_id !== userId) {
             setOtherLocation([newLoc.lat, newLoc.lng]);
+            setOtherLastUpdate(newLoc.updated_at);
+            getAddress(newLoc.lat, newLoc.lng, setOtherAddress);
           }
         }
       )
@@ -198,16 +251,18 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
       
       if (data && data.length > 0) {
         setOtherLocation([data[0].lat, data[0].lng]);
+        setOtherLastUpdate(data[0].updated_at);
+        getAddress(data[0].lat, data[0].lng, setOtherAddress);
 
         // Fetch other user's profile avatar
         const { data: profile } = await supabase
-          .from('config')
+          .from('profiles')
           .select('avatar_url')
           .eq('user_id', data[0].user_id)
           .maybeSingle();
         
-        if (profile) {
-          setOtherProfile(profile);
+        if (profile && profile.avatar_url) {
+          setOtherProfile({ avatar_url: profile.avatar_url });
         }
       }
     };
@@ -227,6 +282,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
                lng: longitude,
                updated_at: new Date().toISOString()
              });
+             getAddress(latitude, longitude, setUserAddress);
           });
         }
       }
@@ -237,22 +293,33 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
     let watchId: number;
     
     const updateLocationInDB = async (lat: number, lng: number) => {
-      await supabase.from('locations').upsert({
-        user_id: userId,
-        lat: lat,
-        lng: lng,
-        updated_at: new Date().toISOString()
-      });
+      try {
+        const { error } = await supabase.from('locations').upsert({
+          user_id: userId,
+          lat: lat,
+          lng: lng,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id' });
+        
+        if (error) {
+          console.error("Error updating location in DB:", error);
+          if (error.code === '42P01') {
+            showNotification("Cơ sở dữ liệu Map chưa được khởi tạo. Vui lòng chạy SQL fix.", true);
+          }
+        }
+      } catch (err) {
+        console.error("Critical error updating location:", err);
+      }
     };
 
     const fetchLocationByIP = async () => {
       try {
-        const response = await fetch('http://ip-api.com/json');
+        const response = await fetch('https://ipapi.co/json/');
         const data = await response.json();
-        if (data.status === 'success') {
-          const { lat, lon } = data;
-          setUserLocation([lat, lon]);
-          updateLocationInDB(lat, lon);
+        if (data.latitude && data.longitude) {
+          setUserLocation([data.latitude, data.longitude]);
+          updateLocationInDB(data.latitude, data.longitude);
+          getAddress(data.latitude, data.longitude, setUserAddress);
         }
       } catch (err) {
         console.error("IP Location Fallback failed:", err);
@@ -281,13 +348,14 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
             lastUpdateRef.current = now;
             lastPosRef.current = [latitude, longitude];
             updateLocationInDB(latitude, longitude);
+            getAddress(latitude, longitude, setUserAddress);
           }
         },
         (error) => {
           console.warn("Geolocation error, attempting IP fallback:", error);
           fetchLocationByIP();
         },
-        { enableHighAccuracy: false, maximumAge: 30000, timeout: 10000 }
+        { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 }
       );
     } else {
       fetchLocationByIP();
@@ -300,13 +368,15 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
     };
   }, [userId]);
 
-  const otherIcon = useMemo(() => createCustomIcon(config.avatar_url || 'https://placehold.co/100x100?text=❤️'), [config.avatar_url]);
-  const userIcon = divIcon({
-    className: 'user-marker',
-    html: `<div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg animate-pulse"></div>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8]
-  });
+  const formatTime = (isoString: string) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (diff < 60) return 'vừa xong';
+    if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`;
+    return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  };
 
   const handleSelectFromList = (item: Event) => {
     const lat = item.location!.lat;
@@ -361,7 +431,9 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="text-[10px] font-bold text-gray-800 truncate">Vị trí của bạn</h4>
-                    <p className="text-[9px] text-blue-500 animate-pulse font-medium">Đang chia sẻ trực tiếp</p>
+                    <p className="text-[9px] text-blue-500 animate-pulse font-medium truncate">
+                      {userAddress || 'Đang chia sẻ trực tiếp...'}
+                    </p>
                   </div>
                   <Zap size={10} className="text-blue-500 fill-blue-500" />
                 </motion.button>
@@ -379,12 +451,22 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="text-[10px] font-bold text-gray-800 truncate">Vị trí của người ấy</h4>
-                    <p className={`text-[9px] font-medium ${isOtherOnline ? 'text-rose-500 animate-pulse' : 'text-gray-400'}`}>
-                      {isOtherOnline ? 'Đang online ❤️' : 'Đã offline 🌙'}
+                    <p className={`text-[9px] font-medium truncate ${isOtherOnline ? 'text-rose-500 animate-pulse' : 'text-gray-400'}`}>
+                      {otherAddress || (isOtherOnline ? 'Đang online ❤️' : 'Đã offline 🌙')}
+                      {otherLastUpdate && ` (${formatTime(otherLastUpdate)})`}
                     </p>
                   </div>
                   <Zap size={10} className={isOtherOnline ? 'text-rose-500 fill-rose-500' : 'text-gray-300'} />
                 </motion.button>
+              )}
+              
+              {distance && (
+                <div className="px-2 py-1.5 bg-rose-50/30 rounded-lg flex items-center justify-center gap-2 border border-rose-100/30 mt-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping"></div>
+                  <p className="text-[9px] font-bold text-rose-400 uppercase tracking-widest leading-none">
+                    Cách nhau {distance} km
+                  </p>
+                </div>
               )}
             </div>
           )}
@@ -441,7 +523,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
               <div className="hidden sm:block">
                 <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Live Tracking</h3>
                 <p className="text-xs font-bold text-gray-800 leading-none">
-                  {otherLocation ? 'Cùng nhau ❤️' : 'Đang hoạt động'}
+                  {distance ? `Cách nhau ${distance} km` : (otherLocation ? 'Cùng nhau ❤️' : 'Đang hoạt động')}
                 </p>
               </div>
             </div>
@@ -490,50 +572,69 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
             chunkedLoading
             maxClusterRadius={50}
           >
-            {mapItems.map((item) => (
-              <Marker 
-                key={item.id} 
-                position={[item.location!.lat, item.location!.lng]}
-                icon={createCustomIcon(getOptimizedImageUrl(item.photo_url, 100))}
-                eventHandlers={{
-                  click: () => {
-                    setSelectedItem(item);
-                    setFlyToCoords([item.location!.lat, item.location!.lng]);
-                  }
-                }}
-              >
-                <Popup className="custom-popup">
-                  <div className="w-48 overflow-hidden rounded-2xl">
-                    <img 
-                      src={getOptimizedImageUrl(item.photo_url, 400)} 
-                      alt={item.title}
-                      className="w-full h-32 object-cover"
-                    />
-                    <div className="p-3">
-                      <p className="text-[8px] font-black text-rose-400 uppercase tracking-widest leading-none mb-1">
-                        {new Date(item.date).toLocaleDateString('vi-VN')}
-                      </p>
-                      <h4 className="text-xs font-black text-gray-800 line-clamp-1 mb-1 uppercase tracking-tight">{item.title}</h4>
-                      <p className="text-[10px] text-gray-500 line-clamp-2 leading-tight">{(item.location as any)?.address_name || item.description}</p>
+            {mapItems.map((item) => {
+              const pos: [number, number] = [item.location!.lat, item.location!.lng];
+              return (
+                <Marker 
+                  key={item.id} 
+                  position={pos}
+                  icon={L.divIcon({
+                    className: 'memory-marker',
+                    html: `
+                      <div class="relative w-10 h-10 group">
+                        <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 bg-white rotate-45 border-r border-b border-gray-100"></div>
+                        <div class="w-full h-full rounded-2xl border-4 border-white shadow-lg overflow-hidden group-hover:scale-110 transition-transform bg-rose-50">
+                          <img src="${getOptimizedImageUrl(item.photo_url, 100)}" class="w-full h-full object-cover" />
+                        </div>
+                      </div>
+                    `,
+                    iconSize: [40, 40],
+                    iconAnchor: [20, 40]
+                  })}
+                  eventHandlers={{
+                    click: () => {
+                      setSelectedItem(item);
+                      setFlyToCoords(pos);
+                    }
+                  }}
+                >
+                  <Popup className="custom-popup">
+                    <div className="w-48 overflow-hidden rounded-2xl">
+                      <img 
+                        src={getOptimizedImageUrl(item.photo_url, 400)} 
+                        alt={item.title}
+                        className="w-full h-32 object-cover"
+                      />
+                      <div className="p-3">
+                        <p className="text-[8px] font-black text-rose-400 uppercase tracking-widest leading-none mb-1">
+                          {new Date(item.date).toLocaleDateString('vi-VN')}
+                        </p>
+                        <h4 className="text-xs font-black text-gray-800 line-clamp-1 mb-1 uppercase tracking-tight">{item.title}</h4>
+                        <p className="text-[10px] text-gray-500 line-clamp-2 leading-tight">{(item.location as any)?.address_name || item.description}</p>
+                      </div>
                     </div>
-                  </div>
-                </Popup>
-              </Marker>
-            ))}
+                  </Popup>
+                </Marker>
+              );
+            })}
           </MarkerClusterGroup>
 
           {/* Live Markers */}
-          {userLocation && (
-            <Marker position={userLocation} icon={createCustomIcon(userProfile?.avatar_url || 'https://placehold.co/100x100?text=Me', false)}>
-              <Popup>Vị trí của bạn</Popup>
-            </Marker>
+          {userLocation && typeof userLocation[0] === 'number' && typeof userLocation[1] === 'number' && (
+            <CustomMarker 
+              position={userLocation} 
+              imageUrl={userProfile?.avatar_url || 'https://placehold.co/100x100?text=Me'} 
+              isOffline={false}
+              label={`Bạn ${userAddress ? `(${userAddress})` : ''}`}
+            />
           )}
-          {otherLocation && (
-            <Marker position={otherLocation} icon={createCustomIcon(otherProfile?.avatar_url || config.avatar_url || 'https://placehold.co/100x100?text=❤️', !isOtherOnline)}>
-              <Popup>
-                {isOtherOnline ? 'Vị trí hiện tại của người ấy ❤️' : 'Vị trí cuối cùng của người ấy 🌙'}
-              </Popup>
-            </Marker>
+          {otherLocation && typeof otherLocation[0] === 'number' && typeof otherLocation[1] === 'number' && (
+            <CustomMarker 
+              position={otherLocation} 
+              imageUrl={otherProfile?.avatar_url || config.avatar_url || 'https://placehold.co/100x100?text=❤️'} 
+              isOffline={!isOtherOnline}
+              label={isOtherOnline ? `Người ấy ❤️ ${otherAddress ? `(${otherAddress})` : ''}` : `Vị trí cuối 🌙 ${otherAddress ? `(${otherAddress})` : ''}`}
+            />
           )}
 
           <ZoomControl />
