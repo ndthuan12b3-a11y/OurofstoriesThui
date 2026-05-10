@@ -16,50 +16,54 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
     const updateLocationInDB = async (lat: number, lng: number) => {
       if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
       
+      // Kiểm tra kết nối mạng trước khi gửi dữ liệu
+      if (!navigator.onLine) {
+        showNotification('Mất kết nối mạng, đang chờ cập nhật vị trí...', true);
+        return;
+      }
+      
       try {
         const timestamp = new Date().toISOString();
         
         // Cache locally for the UI to use instantly
         localStorage.setItem(`last_loc_${userId}`, JSON.stringify([lat, lng]));
 
-        // Thử upsert dựa trên primary key hoặc unique constraint
+        // Chuẩn hóa dữ liệu: Loại bỏ hoàn toàn trường 'id' cũ
         const locationData = {
-          id: userId,
           user_id: userId,
           lat: lat,
           lng: lng,
-          updated_at: new Date()
+          updated_at: new Date().toISOString()
         };
 
+        // Ưu tiên Upsert dựa trên user_id
         const { error } = await supabase
           .from('locations')
-          .upsert(locationData, { onConflict: 'id' });
+          .upsert(locationData, { onConflict: 'user_id' });
         
         if (error) {
           console.error("Error updating location in DB:", error);
           
-          // Secondary fallback if upsert fails on conflict constraint
-          if (error.code === '42P10') {
-            const { data: existing } = await supabase
+          // Fallback: Nếu Upsert thất bại (do DB cũ chưa cập nhật constraint), 
+          // thực hiện Xóa rồi Thêm mới để đảm bảo tính nhất quán
+          if (error.code === '23502' || error.code === '23505' || error.code === '42P10') {
+            console.log("Attempting fallback: Delete then Insert...");
+            await supabase
               .from('locations')
-              .select('user_id')
-              .eq('user_id', userId)
-              .maybeSingle();
-
-            if (existing) {
-              await supabase
-                .from('locations')
-                .update({ lat, lng, updated_at: new Date() })
-                .eq('user_id', userId);
-            } else {
-              await supabase
-                .from('locations')
-                .insert(locationData);
+              .delete()
+              .eq('user_id', userId);
+              
+            const { error: insertError } = await supabase
+              .from('locations')
+              .insert(locationData);
+            
+            if (insertError) {
+              console.error("Critical fallback insert failed:", insertError);
             }
           }
         }
       } catch (err) {
-        console.error("Location upate critical failure:", err);
+        console.error("Location update critical failure:", err);
       }
     };
 
@@ -99,44 +103,51 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
 
     let watchId: number;
 
-    if ("geolocation" in navigator) {
-      watchId = navigator.geolocation.watchPosition(
-        async (position) => {
-          const { latitude, longitude, accuracy } = position.coords;
-          const now = Date.now();
+    const startWatching = () => {
+      if ("geolocation" in navigator) {
+        watchId = navigator.geolocation.watchPosition(
+          async (position) => {
+            const { latitude, longitude } = position.coords;
+            const now = Date.now();
 
-          // Throttling: Update DB every 10s or if moved > 2m or if first time
-          const shouldUpdate = () => {
-            if (!lastPosRef.current) return true;
-            if (now - lastUpdateRef.current > 10000) return true;
-            
-            const dLat = Math.abs(latitude - lastPosRef.current[0]);
-            const dLng = Math.abs(longitude - lastPosRef.current[1]);
-            return dLat > 0.00002 || dLng > 0.00002; // ~2 meters
-          };
+            // Throttling: Update DB every 10s hoặc di chuyển > 2m
+            const shouldUpdate = () => {
+              if (!lastPosRef.current) return true;
+              if (now - lastUpdateRef.current > 10000) return true;
+              
+              const dLat = Math.abs(latitude - lastPosRef.current[0]);
+              const dLng = Math.abs(longitude - lastPosRef.current[1]);
+              return dLat > 0.00002 || dLng > 0.00002; // ~2 meters
+            };
 
-          if (shouldUpdate()) {
-            lastUpdateRef.current = now;
-            lastPosRef.current = [latitude, longitude];
-            updateLocationInDB(latitude, longitude);
-          }
-        },
-        (error) => {
-          console.warn("Geolocation watch error, attempting IP fallback:", error);
-          fetchLocationByIP();
-        },
-        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
-      );
-    } else {
-      fetchLocationByIP();
-    }
+            if (shouldUpdate()) {
+              lastUpdateRef.current = now;
+              lastPosRef.current = [latitude, longitude];
+              updateLocationInDB(latitude, longitude);
+            }
+          },
+          (error) => {
+            console.warn("Geolocation watch error, attempting IP fallback:", error);
+            fetchLocationByIP();
+          },
+          { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+        );
+      } else {
+        fetchLocationByIP();
+      }
+    };
 
-    // Handle visibility change to refresh location when coming back
+    startWatching();
+
+    // Re-active location sharing when user returns to tab
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && "geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition((pos) => {
-          updateLocationInDB(pos.coords.latitude, pos.coords.longitude);
-        }, undefined, { enableHighAccuracy: false });
+      if (document.visibilityState === 'visible') {
+        console.log("Tab focused, refreshing location...");
+        if ("geolocation" in navigator) {
+          navigator.geolocation.getCurrentPosition((pos) => {
+            updateLocationInDB(pos.coords.latitude, pos.coords.longitude);
+          }, undefined, { enableHighAccuracy: false });
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);

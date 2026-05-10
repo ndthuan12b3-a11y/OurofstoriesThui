@@ -20,31 +20,46 @@ const defaultIcon = new Icon({
   iconAnchor: [12, 41]
 });
 
+// Fix for default Leaflet icon inclusion
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
 // Custom marker with image
-const CustomMarker = ({ position, imageUrl, isOffline, label }: { 
+const CustomMarker = ({ position, imageUrl, isOffline, label, color = 'rose' }: { 
   position: [number, number], 
   imageUrl: string, 
   isOffline?: boolean, 
-  label: string
+  label: string,
+  color?: 'rose' | 'blue'
 }) => {
+  const borderColor = color === 'rose' ? (isOffline ? 'border-gray-200 grayscale' : 'border-rose-400') : (isOffline ? 'border-gray-200 grayscale' : 'border-blue-400');
+  const arrowColor = color === 'rose' ? (isOffline ? 'bg-gray-200' : 'bg-rose-400') : (isOffline ? 'bg-gray-200' : 'bg-blue-400');
+  const pingColor = color === 'rose' ? 'bg-rose-400/20' : 'bg-blue-400/20';
+  const pulseBorder = color === 'rose' ? 'border-rose-400/30' : 'border-blue-400/30';
+  const labelColor = color === 'rose' ? 'text-rose-500 border-rose-100' : 'text-blue-500 border-blue-100';
+
   const icon = useMemo(() => divIcon({
     className: 'custom-div-icon',
     html: `
       <div class="relative group">
-        <div class="w-12 h-12 rounded-2xl overflow-hidden border-4 ${isOffline ? 'border-gray-200 grayscale' : 'border-rose-400'} shadow-2xl relative z-10 bg-white">
+        <div class="w-12 h-12 rounded-2xl overflow-hidden border-4 ${borderColor} shadow-2xl relative z-10 bg-white">
           <img src="${imageUrl}" class="w-full h-full object-cover" />
           ${!isOffline ? '<div class="absolute top-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full animate-pulse"></div>' : ''}
         </div>
-        <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 ${isOffline ? 'bg-gray-200' : 'bg-rose-400'} rotate-45 shadow-lg"></div>
+        <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 ${arrowColor} rotate-45 shadow-lg"></div>
         ${!isOffline ? `
-          <div class="absolute inset-x-0 inset-y-0 rounded-2xl bg-rose-400/20 animate-ping"></div>
-          <div class="absolute -inset-2 rounded-2xl border-2 border-rose-400/30 animate-pulse"></div>
+          <div class="absolute inset-x-0 inset-y-0 rounded-2xl ${pingColor} animate-ping"></div>
+          <div class="absolute -inset-2 rounded-2xl border-2 ${pulseBorder} animate-pulse"></div>
         ` : ''}
       </div>
     `,
     iconSize: [48, 48],
     iconAnchor: [24, 48],
-  }), [imageUrl, isOffline]);
+  }), [imageUrl, isOffline, color]);
 
   return (
     <Marker position={position} icon={icon}>
@@ -55,7 +70,7 @@ const CustomMarker = ({ position, imageUrl, isOffline, label }: {
         </div>
       </Popup>
       <Tooltip direction="top" offset={[0, -20]} opacity={1} permanent>
-        <span className="text-[10px] font-bold text-rose-500 bg-white/90 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-sm border border-rose-100">
+        <span className={`text-[10px] font-bold bg-white/90 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-sm border ${labelColor}`}>
           {label}
         </span>
       </Tooltip>
@@ -142,82 +157,35 @@ const MapController = ({
 }) => {
   const map = useMap();
   const hasFittedLiveRef = React.useRef(false);
-  const hasFittedItemsRef = React.useRef(false);
   
   React.useEffect(() => {
-    // 1. Manual Refocus (Button or specific interaction)
     const isManual = refocusKey > 0 && refocusKey !== (map as any)._lastRefocusKey;
-    
-    // 2. Initial Live Locations (One-time auto fit for live)
-    const hasLive = (userLocation && isValidCoords(userLocation)) || (otherLocation && isValidCoords(otherLocation));
-    const shouldFitLive = hasLive && !hasFittedLiveRef.current;
-
-    // 3. Initial Map Items (Fallback)
-    const shouldFitItems = mapItems.length > 0 && !hasFittedItemsRef.current && !hasLive;
-
-    // 4. Auto-follow: If both are active and moving, keep them in view
-    // Only auto-follow if the user hasn't manually panned away recently
-    const lastUserInteraction = (map as any)._lastInteractionTime || 0;
-    const isInteracting = Date.now() - lastUserInteraction < 5000;
-    const shouldAutoFollow = hasLive && !isInteracting && hasFittedLiveRef.current;
-
-    if (!isManual && !shouldFitLive && !shouldFitItems && !shouldAutoFollow) return;
-
     const points: [number, number][] = [];
+    
+    // Filter coordinates
     if (userLocation && isValidCoords(userLocation)) points.push(userLocation);
     if (otherLocation && isValidCoords(otherLocation)) points.push(otherLocation);
-    
-    if (points.length === 0 && mapItems.length > 0) {
-      mapItems.forEach(item => {
-        if (item.location?.lat && item.location?.lng) {
-          const p: [number, number] = [Number(item.location.lat), Number(item.location.lng)];
-          if (isValidCoords(p)) {
-            points.push(p);
-          }
-        }
-      });
-    }
 
-    if (points.length > 0) {
-      try {
+    // Initial fit or manual refocus
+    if (points.length > 0 && (!hasFittedLiveRef.current || isManual)) {
+      if (points.length === 1) {
+        // Auto-fit Camera: Nếu chỉ có 1 người (Tôi): Dùng map.flyTo([lat, lng], 15).
+        map.flyTo(points[0], 15, { duration: 2 });
+      } else {
+        // Nếu có từ 2 người trở lên: Dùng map.fitBounds
         const bounds = L.latLngBounds(points);
-        if (bounds && bounds.isValid()) {
-          const padding: [number, number] = window.innerWidth < 768 ? [60, 60] : [120, 120];
-          
-          // Use flyToBounds if it's an auto-follow update for smoothness
-          if (shouldAutoFollow) {
-            map.flyToBounds(bounds, { padding, duration: 1.5, easeLinearity: 0.25, maxZoom: 15 });
-          } else {
-            map.fitBounds(bounds, { padding, maxZoom: 15 });
-          }
-          
-          if (hasLive) hasFittedLiveRef.current = true;
-          if (mapItems.length > 0) hasFittedItemsRef.current = true;
-          if (isManual) (map as any)._lastRefocusKey = refocusKey;
-        }
-      } catch (e) {
-        console.error("Error fitting bounds:", e);
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
       }
+      hasFittedLiveRef.current = true;
+      if (isManual) (map as any)._lastRefocusKey = refocusKey;
     }
-  }, [userLocation, otherLocation, map, mapItems, refocusKey]);
-
-  // Track map interactions to pause auto-follow
-  React.useEffect(() => {
-    const setInteraction = () => {
-      (map as any)._lastInteractionTime = Date.now();
-    };
-    map.on('movestart', setInteraction);
-    map.on('zoomstart', setInteraction);
-    return () => {
-      map.off('movestart', setInteraction);
-      map.off('zoomstart', setInteraction);
-    };
-  }, [map]);
+  }, [userLocation, otherLocation, map, refocusKey]);
 
   return null;
 };
 
 export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, userProfile }) => {
+  const { isOtherOnline: isOtherPresenceOnline } = usePresence();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showList, setShowList] = useState(true);
   const [selectedItem, setSelectedItem] = useState<Event | null>(null);
@@ -227,18 +195,21 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   const [userAddress, setUserAddress] = useState<string>('');
   const [otherAddress, setOtherAddress] = useState<string>('');
   const [otherLastUpdate, setOtherLastUpdate] = useState<string>('');
-  const [otherProfile, setOtherProfile] = useState<{ avatar_url: string | null, name?: string } | null>(null);
+  const [otherProfile, setOtherProfile] = useState<{ avatar_url: string | null, name?: string, id?: string } | null>(null);
   const [refocusKey, setRefocusKey] = useState(0);
   const lastUpdateRef = React.useRef<number>(0);
   const lastPosRef = React.useRef<[number, number] | null>(null);
 
   const isOtherOnline = useMemo(() => {
+    // Priority 1: Presence context (Real-time socket)
+    if (isOtherPresenceOnline) return true;
+    
+    // Priority 2: Last update timestamp check (Fallback)
     if (!otherLastUpdate) return false;
     const lastUpdate = new Date(otherLastUpdate).getTime();
     const now = Date.now();
-    // Consider online if update within 2 minutes
-    return (now - lastUpdate) < 120000;
-  }, [otherLastUpdate]);
+    return (now - lastUpdate) < 180000; // Increased to 3 minutes for buffer
+  }, [otherLastUpdate, isOtherPresenceOnline]);
 
   const distance = useMemo(() => {
     if (!userLocation || !otherLocation) return null;
@@ -303,10 +274,18 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
     const requestWakeLock = async () => {
       try {
         if ('wakeLock' in navigator) {
+          // Check if permissions policy allows wake-lock
+          // @ts-ignore
+          if (document.featurePolicy && !document.featurePolicy.allowsFeature('screen-wake-lock')) {
+            return;
+          }
           wakeLock = await (navigator as any).wakeLock.request('screen');
         }
-      } catch (err) {
-        console.error(`${err.name}, ${err.message}`);
+      } catch (err: any) {
+        // Silently skip if disallowed by policy or not supported
+        if (err.name !== 'NotAllowedError') {
+          console.warn('WakeLock request failed:', err.message);
+        }
       }
     };
 
@@ -363,32 +342,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
     // 2. Fetch initial locations
     const fetchLocations = async () => {
       try {
-        // Try local cache first for snappier UI
-        const cachedMe = localStorage.getItem(`last_loc_${userId}`);
-        if (cachedMe) {
-          try {
-            const parsed = JSON.parse(cachedMe);
-            if (isValidCoords(parsed)) {
-              setUserLocation(parsed);
-            }
-          } catch (e) {
-            console.warn("Me cache invalid", e);
-          }
-        }
-
-        const cachedOther = localStorage.getItem(`last_loc_other`);
-        if (cachedOther) {
-          try {
-            const parsed = JSON.parse(cachedOther);
-            if (parsed.coords && isValidCoords(parsed.coords)) {
-              setOtherLocation(parsed.coords);
-              setOtherLastUpdate(parsed.updated_at);
-            }
-          } catch (e) {
-            console.warn("Other cache invalid", e);
-          }
-        }
-
+        console.log("Fetching locations for StoryMap...");
         // Fetch MY location from DB
         const { data: myData } = await supabase
           .from('locations')
@@ -404,50 +358,62 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
         }
 
         // Fetch OTHER person location from DB
-        const { data: others, error } = await supabase
+        const { data: others, error: fetchError } = await supabase
           .from('locations')
           .select('*')
           .neq('user_id', userId)
           .order('updated_at', { ascending: false })
           .limit(1);
         
+        if (fetchError) {
+          console.error("Fetch others failed:", fetchError);
+        }
+
         if (others && others.length > 0) {
           const coords: [number, number] = [Number(others[0].lat), Number(others[0].lng)];
+          console.log("Found other location:", coords);
           setOtherLocation(coords);
           setOtherLastUpdate(others[0].updated_at || '');
           getAddress(coords[0], coords[1], setOtherAddress);
           localStorage.setItem(`last_loc_other`, JSON.stringify({ coords, updated_at: others[0].updated_at, user_id: others[0].user_id }));
 
-          // Fetch profile
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('avatar_url')
-            .eq('user_id', others[0].user_id)
-            .maybeSingle();
-          
-          if (profile) {
-            setOtherProfile({ avatar_url: profile.avatar_url });
+          // Fetch profile if not already set or changed
+          if (!otherProfile || otherProfile.id !== others[0].user_id) {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('avatar_url')
+              .eq('user_id', others[0].user_id)
+              .maybeSingle();
+            
+            if (profile) {
+              setOtherProfile({ avatar_url: profile.avatar_url, id: others[0].user_id });
+            }
           }
+        } else {
+          console.log("No other locations found in DB");
         }
       } catch (err) {
-        console.error("Fetch locations failed:", err);
+        console.error("Fetch locations failed critical:", err);
       }
     };
     fetchLocations();
 
-    // 2b. Handle Visibility Change
-    const handleVisibilityChange = () => {
+    // 3. Re-fetch periodically or when user comes back
+    const interval = setInterval(fetchLocations, 30000); // 30s polling fallback
+
+    const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         fetchLocations();
       }
     };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
       supabase.removeChannel(channel);
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [userId]);
+  }, [userId, isOtherPresenceOnline, refocusKey]);
 
   const formatTime = (isoString: string) => {
     if (!isoString) return '';
@@ -497,10 +463,60 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
             <X size={16} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-2 space-y-4 custom-scrollbar">
+          {/* Live Section */}
+          <div className="space-y-2">
+            <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest px-2 flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+              </span>
+              Trực tiếp
+            </p>
+            
+            {userLocation && (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => handleSelectLiveLocation(userLocation, 'Bạn')}
+                className="w-full p-3 rounded-2xl bg-white/60 hover:bg-white/80 border border-white/50 flex items-center gap-3 transition-all"
+              >
+                <div className="w-10 h-10 rounded-xl overflow-hidden shadow-sm border-2 border-white bg-rose-50">
+                  <img src={userProfile?.avatar_url || ''} className="w-full h-full object-cover" alt="Me" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-[11px] font-bold text-gray-800">Bạn</h4>
+                  <p className="text-[9px] text-gray-500 truncate">{userAddress || 'Đang xác định vị trí...'}</p>
+                </div>
+              </motion.button>
+            )}
+
+            {otherLocation && (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => handleSelectLiveLocation(otherLocation, 'Người ấy')}
+                className={`w-full p-3 rounded-2xl border transition-all flex items-center gap-3 ${isOtherOnline ? 'bg-rose-50/50 border-rose-100' : 'bg-white/60 border-white/50'}`}
+              >
+                <div className={`w-10 h-10 rounded-xl overflow-hidden shadow-sm border-2 ${isOtherOnline ? 'border-rose-400' : 'border-white'} bg-gray-50`}>
+                  <img src={otherProfile?.avatar_url || config.avatar_url || ''} className={`w-full h-full object-cover ${isOtherOnline ? '' : 'grayscale'}`} alt="Other" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-[11px] font-bold text-gray-800 flex items-center gap-1">
+                    Người ấy
+                    {isOtherOnline && <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>}
+                  </h4>
+                  <p className="text-[9px] text-gray-500 truncate">{otherAddress || 'Đang xác định vị trí...'}</p>
+                  {otherLastUpdate && <p className="text-[8px] text-gray-400 mt-0.5">{formatTime(otherLastUpdate)}</p>}
+                </div>
+              </motion.button>
+            )}
+          </div>
+
           {/* Memories Section */}
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2">Địa điểm cũ</p>
-          {mapItems.map(item => (
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2">Kỷ niệm cũ</p>
+            {mapItems.map(item => (
             <motion.button
               key={item.id}
               whileHover={{ scale: 1.02 }}
@@ -524,6 +540,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
               <ChevronRight size={12} className={selectedItem?.id === item.id ? 'text-rose-100' : 'text-gray-300'} />
             </motion.button>
           ))}
+          </div>
         </div>
       </motion.div>
 
@@ -648,20 +665,24 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           </MarkerClusterGroup>
 
           {/* Live Markers */}
+          {/* Hiển thị Marker khi và chỉ khi tọa độ và ID người dùng hợp lệ */}
           {userLocation && isValidCoords(userLocation) && (
             <CustomMarker 
               position={userLocation} 
               imageUrl={userProfile?.avatar_url || 'https://placehold.co/100x100?text=Me'} 
               isOffline={false}
               label={`Bạn ❤️`}
+              color="blue"
             />
           )}
-          {otherLocation && isValidCoords(otherLocation) && (
+          
+          {otherLocation && isValidCoords(otherLocation) && otherProfile?.id && (
             <CustomMarker 
               position={otherLocation} 
               imageUrl={otherProfile?.avatar_url || config.avatar_url || 'https://placehold.co/100x100?text=❤️'} 
               isOffline={!isOtherOnline}
               label={isOtherOnline ? `Người ấy đang online ❤️` : `Vị trí cuối của em 🌙`}
+              color="rose"
             />
           )}
 
