@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { supabase } from '../lib/supabase';
 import { Thermometer, Heart, MessageCircle, Sparkles, RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -42,11 +42,12 @@ export const LoveMoodTracker: React.FC<LoveMoodTrackerProps> = ({ userRole }) =>
       }
 
       const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
-        console.warn("GEMINI_API_KEY not configured");
+      if (!apiKey) {
+        console.warn("GEMINI_API_KEY is not set in environment");
         setLoading(false);
         return;
       }
+      
       const ai = new GoogleGenAI({ apiKey });
       
       const eventsText = events.map(e => `${e.date}: ${e.title} - ${e.description}`).join('\n');
@@ -56,24 +57,32 @@ export const LoveMoodTracker: React.FC<LoveMoodTrackerProps> = ({ userRole }) =>
         Danh sách kỷ niệm:
         ${eventsText}
         
-        Hãy trả về kết quả dưới định dạng JSON với các trường sau:
-        - temperature: số từ 0 đến 100 (thể hiện mức độ nồng nhiệt)
-        - status: một cụm từ ngắn mô tả trạng thái (ví dụ: "Nồng cháy", "Ấm áp", "Bình lặng", "Hơi lạnh nhạt")
-        - advice: một lời khuyên ngắn gọn, chân thành để duy trì hoặc hâm nóng tình cảm.
-        - trend: một trong ba giá trị: "up", "down", "stable" (xu hướng tình cảm gần đây).
-        
-        Ngôn ngữ: Tiếng Việt. Chỉ trả về JSON.
+        Nhiệm vụ: Phân tích mức độ nồng nhiệt, trạng thái hiện tại, đưa ra lời khuyên và xác định xu hướng.
+        Ngôn ngữ: Tiếng Việt.
       `;
 
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: {
-          parts: [{ text: prompt }]
-        },
-        config: { responseMimeType: "application/json" }
+        contents: prompt,
+        config: { 
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              temperature: { type: Type.NUMBER, description: "Số từ 0 đến 100" },
+              status: { type: Type.STRING, description: "Trạng thái ngắn gọn" },
+              advice: { type: Type.STRING, description: "Lời khuyên chân thành" },
+              trend: { type: Type.STRING, enum: ["up", "down", "stable"] }
+            },
+            required: ["temperature", "status", "advice", "trend"]
+          }
+        }
       });
 
-      const result = JSON.parse(response.text || "{}");
+      const text = response.text;
+      if (!text) throw new Error("No response from AI");
+      
+      const result = JSON.parse(text);
       setAnalysis(result);
     } catch (error) {
       console.error("Mood Analysis Error:", error);

@@ -84,7 +84,7 @@ export const JourneyStoryteller: React.FC<JourneyStorytellerProps> = ({ config, 
       }
 
       const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+      if (!apiKey) {
         showNotification("Vui lòng thiết lập GEMINI_API_KEY trong phần Secrets!", true);
         setLoading(false);
         return;

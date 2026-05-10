@@ -122,7 +122,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
     setIsGeneratingCaption(true);
     try {
       const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+      if (!apiKey) {
         showNotification("Vui lòng thiết lập GEMINI_API_KEY!", true);
         setIsGeneratingCaption(false);
         return;
