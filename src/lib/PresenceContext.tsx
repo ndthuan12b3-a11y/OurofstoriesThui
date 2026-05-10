@@ -5,7 +5,9 @@ import { showNotification } from './notifications';
 interface PresenceState {
   onlineUsers: string[];
   isOtherOnline: boolean;
+  otherLocation: [number, number] | null;
   sendPing: (message: string) => void;
+  updateLocation: (lat: number, lng: number) => void;
 }
 
 const PresenceContext = createContext<PresenceState | undefined>(undefined);
@@ -13,6 +15,8 @@ const PresenceContext = createContext<PresenceState | undefined>(undefined);
 export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: string | undefined }> = ({ children, userId }) => {
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [isOtherOnline, setIsOtherOnline] = useState(false);
+  const [otherLocation, setOtherLocation] = useState<[number, number] | null>(null);
+  const channelRef = React.useRef<any>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -25,12 +29,26 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
       },
     });
 
+    channelRef.current = channel;
+
     channel
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState();
         const users = Object.keys(state);
         setOnlineUsers(users);
         setIsOtherOnline(users.length > 1);
+
+        // Find other user's location in presence state
+        const otherId = users.find(id => id !== userId);
+        if (otherId) {
+          const presence = state[otherId] as any[];
+          if (presence && presence.length > 0) {
+            const latest = presence[presence.length - 1];
+            if (latest.lat && latest.lng) {
+              setOtherLocation([Number(latest.lat), Number(latest.lng)]);
+            }
+          }
+        }
       })
       .on('presence', { event: 'join' }, ({ key }) => {
         if (key !== userId) {
@@ -40,6 +58,7 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
       .on('presence', { event: 'leave' }, ({ key }) => {
         if (key !== userId) {
           showNotification("Người ấy đã offline. 🌙");
+          setOtherLocation(null);
         }
       })
       // Real-time Broadcast for Notifications (Pings)
@@ -54,19 +73,32 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
 
     return () => {
       channel.unsubscribe();
+      channelRef.current = null;
     };
   }, [userId]);
 
   const sendPing = (message: string) => {
-    supabase.channel('online-users').send({
-      type: 'broadcast',
-      event: 'ping',
-      payload: { message },
-    });
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'ping',
+        payload: { message },
+      });
+    }
+  };
+
+  const updateLocation = (lat: number, lng: number) => {
+    if (channelRef.current) {
+      channelRef.current.track({ 
+        lat, 
+        lng, 
+        online_at: new Date().toISOString() 
+      });
+    }
   };
 
   return (
-    <PresenceContext.Provider value={{ onlineUsers, isOtherOnline, sendPing }}>
+    <PresenceContext.Provider value={{ onlineUsers, isOtherOnline, otherLocation, sendPing, updateLocation }}>
       {children}
     </PresenceContext.Provider>
   );

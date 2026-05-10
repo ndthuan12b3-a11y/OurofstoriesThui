@@ -45,7 +45,7 @@ const CustomMarker = ({ position, imageUrl, isOffline, label, color = 'rose' }: 
   const icon = useMemo(() => divIcon({
     className: 'custom-div-icon',
     html: `
-      <div class="relative group">
+      <div class="relative group" style="transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1); will-change: transform;">
         <div class="w-12 h-12 rounded-2xl overflow-hidden border-4 ${borderColor} shadow-2xl relative z-10 bg-white">
           <img src="${imageUrl}" class="w-full h-full object-cover" />
           ${!isOffline ? '<div class="absolute top-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full animate-pulse"></div>' : ''}
@@ -185,13 +185,13 @@ const MapController = ({
 };
 
 export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, userProfile }) => {
-  const { isOtherOnline: isOtherPresenceOnline } = usePresence();
+  const { isOtherOnline: isOtherPresenceOnline, otherLocation: otherPresenceLocation } = usePresence();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showList, setShowList] = useState(true);
   const [selectedItem, setSelectedItem] = useState<Event | null>(null);
   const [flyToCoords, setFlyToCoords] = useState<[number, number] | null>(null);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
-  const [otherLocation, setOtherLocation] = useState<[number, number] | null>(null);
+  const [dbOtherLocation, setDbOtherLocation] = useState<[number, number] | null>(null);
   const [userAddress, setUserAddress] = useState<string>('');
   const [otherAddress, setOtherAddress] = useState<string>('');
   const [otherLastUpdate, setOtherLastUpdate] = useState<string>('');
@@ -200,22 +200,23 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   const lastUpdateRef = React.useRef<number>(0);
   const lastPosRef = React.useRef<[number, number] | null>(null);
 
+  // Preference for presence location over DB location for real-time smoothness
+  const otherLocation = useMemo(() => {
+    return otherPresenceLocation || dbOtherLocation;
+  }, [otherPresenceLocation, dbOtherLocation]);
+
   const isOtherOnline = useMemo(() => {
-    // Priority 1: Presence context (Real-time socket)
     if (isOtherPresenceOnline) return true;
-    
-    // Priority 2: Last update timestamp check (Fallback)
     if (!otherLastUpdate) return false;
     const lastUpdate = new Date(otherLastUpdate).getTime();
-    const now = Date.now();
-    return (now - lastUpdate) < 180000; // Increased to 3 minutes for buffer
+    return (Date.now() - lastUpdate) < 180000;
   }, [otherLastUpdate, isOtherPresenceOnline]);
 
   const distance = useMemo(() => {
     if (!userLocation || !otherLocation) return null;
     const [lat1, lon1] = userLocation;
     const [lat2, lon2] = otherLocation;
-    const R = 6371; // Radius of the earth in km
+    const R = 6371; // km
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = 
@@ -224,8 +225,17 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
       Math.sin(dLon/2) * Math.sin(dLon/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     const d = R * c;
-    return d.toFixed(2);
+    return d < 1 ? `${(d * 1000).toFixed(0)}m` : `${d.toFixed(2)}km`;
   }, [userLocation, otherLocation]);
+
+  // Update other address when location changes
+  React.useEffect(() => {
+    if (otherLocation) {
+      getAddress(otherLocation[0], otherLocation[1], setOtherAddress);
+    }
+  }, [otherLocation]);
+
+  // ... (keeping other helper functions like getAddress)
 
   // Helper: Reverse Geocode with simplified logic and rate limit protection
   const fetchingRef = React.useRef<{ [key: string]: boolean }>({});
@@ -326,9 +336,8 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
             // Cache locally for instant load next time
             localStorage.setItem(`last_loc_${userId}`, JSON.stringify(coords));
           } else {
-            setOtherLocation(coords);
+            setDbOtherLocation(coords);
             setOtherLastUpdate(newLoc.updated_at);
-            getAddress(coords[0], coords[1], setOtherAddress);
             localStorage.setItem(`last_loc_other`, JSON.stringify({ coords, updated_at: newLoc.updated_at, user_id: newLoc.user_id }));
           }
         }
@@ -372,9 +381,8 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
         if (others && others.length > 0) {
           const coords: [number, number] = [Number(others[0].lat), Number(others[0].lng)];
           console.log("Found other location:", coords);
-          setOtherLocation(coords);
+          setDbOtherLocation(coords);
           setOtherLastUpdate(others[0].updated_at || '');
-          getAddress(coords[0], coords[1], setOtherAddress);
           localStorage.setItem(`last_loc_other`, JSON.stringify({ coords, updated_at: others[0].updated_at, user_id: others[0].user_id }));
 
           // Fetch profile if not already set or changed
@@ -507,6 +515,11 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
                     {isOtherOnline && <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>}
                   </h4>
                   <p className="text-[9px] text-gray-500 truncate">{otherAddress || 'Đang xác định vị trí...'}</p>
+                  {distance && isOtherOnline && (
+                    <p className="text-[10px] font-bold text-rose-500 flex items-center gap-1 mt-0.5">
+                      <NavIcon size={10} className="rotate-45" /> Cách bạn {distance}
+                    </p>
+                  )}
                   {otherLastUpdate && <p className="text-[8px] text-gray-400 mt-0.5">{formatTime(otherLastUpdate)}</p>}
                 </div>
               </motion.button>
@@ -552,12 +565,22 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => setRefocusKey(prev => prev + 1)}
+              onClick={() => {
+                if (!isOtherOnline) {
+                  showNotification('Người ấy chưa online', true);
+                  return;
+                }
+                if (otherLocation && isValidCoords(otherLocation)) {
+                  setFlyToCoords(otherLocation);
+                } else {
+                  showNotification('Không tìm thấy vị trí người ấy', true);
+                }
+              }}
               className="bg-white/70 backdrop-blur-md px-5 py-3 rounded-3xl border border-white/50 shadow-lg flex items-center gap-3 text-gray-800 hover:text-rose-500 transition-colors"
-              title="Tìm 2 đứa"
+              title="Tìm người ấy"
             >
               <Zap size={20} className="text-rose-500" />
-              <span className="text-xs font-bold font-sans">Tìm 2 đứa</span>
+              <span className="text-xs font-bold font-sans">Tìm người ấy</span>
             </motion.button>
 
             <motion.button

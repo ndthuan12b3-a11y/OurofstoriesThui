@@ -1,6 +1,7 @@
 import React from 'react';
 import { supabase } from '../lib/supabase';
 import { showNotification } from '../lib/notifications';
+import { usePresence } from '../lib/PresenceContext';
 
 interface LocationSharingProps {
   userId: string;
@@ -9,6 +10,7 @@ interface LocationSharingProps {
 export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
   const lastUpdateRef = React.useRef<number>(0);
   const lastPosRef = React.useRef<[number, number] | null>(null);
+  const { updateLocation: updatePresenceLocation } = usePresence();
 
   React.useEffect(() => {
     if (!userId || !supabase) return;
@@ -16,7 +18,10 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
     const updateLocationInDB = async (lat: number, lng: number) => {
       if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
       
-      // Kiểm tra kết nối mạng trước khi gửi dữ liệu
+      // Real-time presence update (high frequency, no DB cost)
+      updatePresenceLocation(lat, lng);
+
+      // Kiểm tra kết nối mạng trước khi gửi dữ liệu vào DB (lower frequency)
       if (!navigator.onLine) {
         showNotification('Mất kết nối mạng, đang chờ cập nhật vị trí...', true);
         return;
@@ -28,12 +33,11 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
         // Cache locally for the UI to use instantly
         localStorage.setItem(`last_loc_${userId}`, JSON.stringify([lat, lng]));
 
-        // Chuẩn hóa dữ liệu: Loại bỏ hoàn toàn trường 'id' cũ
         const locationData = {
           user_id: userId,
           lat: lat,
           lng: lng,
-          updated_at: new Date().toISOString()
+          updated_at: timestamp
         };
 
         // Ưu tiên Upsert dựa trên user_id
@@ -44,61 +48,15 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
         if (error) {
           console.error("Error updating location in DB:", error);
           
-          // Fallback: Nếu Upsert thất bại (do DB cũ chưa cập nhật constraint), 
-          // thực hiện Xóa rồi Thêm mới để đảm bảo tính nhất quán
           if (error.code === '23502' || error.code === '23505' || error.code === '42P10') {
             console.log("Attempting fallback: Delete then Insert...");
-            await supabase
-              .from('locations')
-              .delete()
-              .eq('user_id', userId);
-              
-            const { error: insertError } = await supabase
-              .from('locations')
-              .insert(locationData);
-            
-            if (insertError) {
-              console.error("Critical fallback insert failed:", insertError);
-            }
+            await supabase.from('locations').delete().eq('user_id', userId);
+            await supabase.from('locations').insert(locationData);
           }
         }
       } catch (err) {
         console.error("Location update critical failure:", err);
       }
-    };
-
-    const fetchLocationByIP = async () => {
-      // Helper to try a service
-      const tryService = async (url: string) => {
-        try {
-          const res = await fetch(url);
-          if (!res.ok) return null;
-          const data = await res.json();
-          // Extract lat/lng based on common formats
-          const lat = data.latitude || data.lat;
-          const lng = data.longitude || data.lon;
-          if (lat && lng) return { lat: Number(lat), lng: Number(lng) };
-        } catch (e) {
-          return null;
-        }
-        return null;
-      };
-
-      // Try multiple services in order
-      const services = [
-        'https://ipapi.co/json/',
-        'https://freeipapi.com/api/json'
-      ];
-
-      for (const url of services) {
-        const result = await tryService(url);
-        if (result) {
-          updateLocationInDB(result.lat, result.lng);
-          return;
-        }
-      }
-      
-      console.warn("All IP Location Fallbacks failed to fetch coordinates.");
     };
 
     let watchId: number;
@@ -107,11 +65,17 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
       if ("geolocation" in navigator) {
         watchId = navigator.geolocation.watchPosition(
           async (position) => {
-            const { latitude, longitude } = position.coords;
+            const { latitude, longitude, accuracy } = position.coords;
             const now = Date.now();
 
-            // Throttling: Update DB every 10s hoặc di chuyển > 2m
-            const shouldUpdate = () => {
+            // Phòng tránh sai số: Lọc bỏ các tọa độ có độ chính xác thấp (accuracy > 100m)
+            if (accuracy > 100) {
+              console.warn(`Location accuracy too low: ${accuracy}m. Skipping point.`);
+              return;
+            }
+
+            // Throttling for DB: Update DB every 10s hoặc di chuyển > 2m
+            const shouldUpdateDB = () => {
               if (!lastPosRef.current) return true;
               if (now - lastUpdateRef.current > 10000) return true;
               
@@ -120,20 +84,20 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
               return dLat > 0.00002 || dLng > 0.00002; // ~2 meters
             };
 
-            if (shouldUpdate()) {
+            if (shouldUpdateDB()) {
               lastUpdateRef.current = now;
               lastPosRef.current = [latitude, longitude];
               updateLocationInDB(latitude, longitude);
+            } else {
+              // Even if not updating DB, update real-time presence for "Smoothness"
+              updatePresenceLocation(latitude, longitude);
             }
           },
           (error) => {
-            console.warn("Geolocation watch error, attempting IP fallback:", error);
-            fetchLocationByIP();
+            console.warn("Geolocation watch error:", error);
           },
           { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
         );
-      } else {
-        fetchLocationByIP();
       }
     };
 
