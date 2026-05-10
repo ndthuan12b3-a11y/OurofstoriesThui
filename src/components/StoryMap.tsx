@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Tooltip } from 'react-leaflet';
+import React, { useState, useMemo, useEffect } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Tooltip, Circle, Polyline } from 'react-leaflet';
 import L, { Icon, divIcon } from 'leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import { motion, AnimatePresence } from 'motion/react';
@@ -114,6 +114,44 @@ const isValidCoords = (coords: any): coords is [number, number] => {
          typeof lng === 'number' && !isNaN(lng) && isFinite(lng);
 };
 
+// Component to automatically fit the map view to show both markers
+const FitBoundsComponent = ({ 
+  userLoc, 
+  otherLoc, 
+  isOtherOnline,
+  refocusKey 
+}: { 
+  userLoc: [number, number] | null, 
+  otherLoc: [number, number] | null,
+  isOtherOnline: boolean,
+  refocusKey: number
+}) => {
+  const map = useMap();
+  const lastKeyRef = React.useRef(0);
+
+  React.useEffect(() => {
+    const points: [number, number][] = [];
+    if (userLoc && isValidCoords(userLoc)) points.push(userLoc);
+    if (otherLoc && isValidCoords(otherLoc)) points.push(otherLoc);
+
+    if (points.length === 0) return;
+
+    // Trigger on initial load (points exist) or when refocus button clicked
+    if (refocusKey !== lastKeyRef.current || (points.length > 0 && lastKeyRef.current === 0)) {
+      lastKeyRef.current = refocusKey;
+      
+      if (points.length === 1) {
+        map.flyTo(points[0], 16, { duration: 1.5 });
+      } else {
+        const bounds = L.latLngBounds(points);
+        map.fitBounds(bounds, { padding: [70, 70], maxZoom: 16, duration: 1.5 });
+      }
+    }
+  }, [refocusKey, userLoc, otherLoc, map]);
+
+  return null;
+};
+
 // Component to handle external "FlyTo" commands
 const FlyToController = ({ target }: { target: [number, number] | null }) => {
   const map = useMap();
@@ -143,46 +181,7 @@ const InvalidateSizeHandler = ({ trigger }: { trigger: any }) => {
   return null;
 };
 
-// Helper component to handle map bounds and view updates
-const MapController = ({ 
-  userLocation, 
-  otherLocation, 
-  mapItems,
-  refocusKey
-}: { 
-  userLocation: [number, number] | null, 
-  otherLocation: [number, number] | null,
-  mapItems: any[],
-  refocusKey: number
-}) => {
-  const map = useMap();
-  const hasFittedLiveRef = React.useRef(false);
-  
-  React.useEffect(() => {
-    const isManual = refocusKey > 0 && refocusKey !== (map as any)._lastRefocusKey;
-    const points: [number, number][] = [];
-    
-    // Filter coordinates
-    if (userLocation && isValidCoords(userLocation)) points.push(userLocation);
-    if (otherLocation && isValidCoords(otherLocation)) points.push(otherLocation);
-
-    // Initial fit or manual refocus
-    if (points.length > 0 && (!hasFittedLiveRef.current || isManual)) {
-      if (points.length === 1) {
-        // Auto-fit Camera: Nếu chỉ có 1 người (Tôi): Dùng map.flyTo([lat, lng], 15).
-        map.flyTo(points[0], 15, { duration: 2 });
-      } else {
-        // Nếu có từ 2 người trở lên: Dùng map.fitBounds
-        const bounds = L.latLngBounds(points);
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
-      }
-      hasFittedLiveRef.current = true;
-      if (isManual) (map as any)._lastRefocusKey = refocusKey;
-    }
-  }, [userLocation, otherLocation, map, refocusKey]);
-
-  return null;
-};
+// Removed old MapController
 
 export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, userProfile }) => {
   const { isOtherOnline: isOtherPresenceOnline, otherLocation: otherPresenceLocation } = usePresence();
@@ -204,6 +203,17 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   const otherLocation = useMemo(() => {
     return otherPresenceLocation || dbOtherLocation;
   }, [otherPresenceLocation, dbOtherLocation]);
+
+  // Track accuracy state (optional, for visual debugging)
+  const [userAccuracy, setUserAccuracy] = useState<number>(0);
+
+  useEffect(() => {
+    const handleAccuracy = (e: any) => {
+      if (e.detail?.accuracy) setUserAccuracy(e.detail.accuracy);
+    };
+    window.addEventListener('location_accuracy', handleAccuracy);
+    return () => window.removeEventListener('location_accuracy', handleAccuracy);
+  }, []);
 
   const isOtherOnline = useMemo(() => {
     if (isOtherPresenceOnline) return true;
@@ -623,13 +633,6 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          <MapController 
-            userLocation={userLocation} 
-            otherLocation={otherLocation} 
-            mapItems={mapItems} 
-            refocusKey={refocusKey}
-          />
-
           <InvalidateSizeHandler trigger={showList || isFullscreen} />
 
           <FlyToController target={flyToCoords} />
@@ -686,6 +689,43 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
               );
             })}
           </MarkerClusterGroup>
+
+          {/* Line connecting the two users */}
+          {userLocation && otherLocation && isOtherOnline && (
+            <Polyline 
+              positions={[userLocation, otherLocation]}
+              pathOptions={{ 
+                color: '#f43f5e', 
+                weight: 2, 
+                dashArray: '10, 10', 
+                opacity: 0.4,
+                lineCap: 'round'
+              }}
+            />
+          )}
+
+          {/* Fit Bounds logic moved to a sub-component */}
+          <FitBoundsComponent 
+            userLoc={userLocation} 
+            otherLoc={otherLocation} 
+            isOtherOnline={isOtherOnline}
+            refocusKey={refocusKey}
+          />
+
+          {/* User Accuracy Circle */}
+          {userLocation && isValidCoords(userLocation) && userAccuracy > 0 && (
+            <Circle 
+              center={userLocation}
+              radius={userAccuracy}
+              pathOptions={{ 
+                fillColor: '#3b82f6', 
+                fillOpacity: 0.1, 
+                color: '#3b82f6', 
+                weight: 1, 
+                dashArray: '5, 5' 
+              }}
+            />
+          )}
 
           {/* Live Markers */}
           {/* Hiển thị Marker khi và chỉ khi tọa độ và ID người dùng hợp lệ */}

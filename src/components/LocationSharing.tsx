@@ -68,9 +68,9 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
             const { latitude, longitude, accuracy } = position.coords;
             const now = Date.now();
 
-            // Phòng tránh sai số: Lọc bỏ các tọa độ có độ chính xác thấp (accuracy > 100m)
-            if (accuracy > 100) {
-              console.warn(`Location accuracy too low: ${accuracy}m. Skipping point.`);
+            // Lọc bỏ sai số quá lớn (> 150m) để tránh vị trí nhảy lung tung
+            if (accuracy > 150) {
+              console.warn(`[GPS] Accuracy too low: ${accuracy}m. Skipping point.`);
               return;
             }
 
@@ -79,9 +79,10 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
               if (!lastPosRef.current) return true;
               if (now - lastUpdateRef.current > 10000) return true;
               
-              const dLat = Math.abs(latitude - lastPosRef.current[0]);
-              const dLng = Math.abs(longitude - lastPosRef.current[1]);
-              return dLat > 0.00002 || dLng > 0.00002; // ~2 meters
+              const dLat = latitude - lastPosRef.current[0];
+              const dLng = longitude - lastPosRef.current[1];
+              const distSq = dLat*dLat + dLng*dLng;
+              return distSq > 0.0000004; // ~2 meters squared (more efficient check)
             };
 
             if (shouldUpdateDB()) {
@@ -89,14 +90,17 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
               lastPosRef.current = [latitude, longitude];
               updateLocationInDB(latitude, longitude);
             } else {
-              // Even if not updating DB, update real-time presence for "Smoothness"
+              // Vẫn cập nhật Real-time Presence để mượt mà nhất có thể
               updatePresenceLocation(latitude, longitude);
             }
+
+            // Sync accuracy with UI
+            window.dispatchEvent(new CustomEvent('location_accuracy', { detail: { accuracy } }));
           },
           (error) => {
             console.warn("Geolocation watch error:", error);
           },
-          { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
         );
       }
     };

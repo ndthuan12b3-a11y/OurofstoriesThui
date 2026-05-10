@@ -8,6 +8,20 @@
   --radius-xl: 2rem;
 }
 
+/* Smooth Movement for Markers */
+.leaflet-marker-icon {
+  transition: transform 1.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.leaflet-zoom-animated {
+  transition: transform 0.25s cubic-bezier(0, 0, 0.25, 1);
+}
+
+.custom-div-icon {
+  background: none !important;
+  border: none !important;
+}
+
 :root {
   --primary-color: #ff8fa3;
   --primary-light: color-mix(in srgb, var(--primary-color), white 90%);
