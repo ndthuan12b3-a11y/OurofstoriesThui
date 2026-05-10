@@ -59,6 +59,20 @@ export default function App() {
   const [events, setEvents] = useState<any[]>([]);
 
   useEffect(() => {
+    // Global fetch error handler
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      const error = event.reason;
+      const errorMsg = error?.message || String(error);
+      if (errorMsg.includes('Failed to fetch')) {
+        showNotification('Kết nối mạng gián đoạn hoặc Server quá tải. Đang thử lại... ⏳', true);
+      }
+    };
+
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => window.removeEventListener('unhandledrejection', handleRejection);
+  }, []);
+
+  useEffect(() => {
     const fetchEvents = async () => {
       const { data } = await supabase
         .from('events')

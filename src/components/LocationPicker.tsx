@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import { Icon, LeafletMouseEvent } from 'leaflet';
 import { Search, MapPin, X, Navigation } from 'lucide-react';
+import { showNotification } from '../lib/notifications';
 
 // Fix for default Leaflet icon inclusion
 const defaultIcon = new Icon({
@@ -80,6 +81,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
       url += `&viewbox=${viewbox}`;
 
       const res = await fetch(url);
+      if (!res.ok) throw new Error("Search request failed");
       const data = await res.json();
       setSearchResults(data);
 
@@ -92,11 +94,11 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
         // Also update value if user just hit search to make it easier
         onChange({ lat, lng, address_name: first.display_name });
       } else {
-        alert("Không tìm thấy địa điểm này.");
+        showNotification("Không tìm thấy địa điểm này.", true);
       }
     } catch (error) {
       console.error('Search error:', error);
-      alert("Lỗi khi tìm kiếm địa điểm.");
+      showNotification("Lỗi khi tìm kiếm địa điểm!", true);
     } finally {
       setIsSearching(false);
     }
@@ -104,7 +106,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
 
   const handleCurrentLocation = () => {
     if (!navigator.geolocation) {
-      alert("Trình duyệt của bạn không hỗ trợ định vị. Vui lòng kiểm tra cài đặt trình duyệt.");
+      showNotification("Trình duyệt không hỗ trợ định vị!", true);
       return;
     }
 
@@ -116,12 +118,16 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
         
         // Reverse geocode
         fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
-          .then(res => res.json())
+          .then(async res => {
+            if (!res.ok) throw new Error("Reverse geocoding failed");
+            return res.json();
+          })
           .then(data => {
             const address = data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
             onChange({ lat: latitude, lng: longitude, address_name: address });
           })
-          .catch(() => {
+          .catch((err) => {
+            console.error("Reverse geocoding error:", err);
             onChange({ lat: latitude, lng: longitude, address_name: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}` });
           })
           .finally(() => {
@@ -130,13 +136,13 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
       },
       (error) => {
         console.error("Geolocation error:", error);
-        let message = "Không thể lấy vị trí hiện tại của bạn.";
+        let message = "Không thể lấy vị trí hiện tại.";
         if (error.code === error.PERMISSION_DENIED) {
-          message = "Bạn đã từ chối quyền truy cập vị trí. Vui lòng bật GPS và cho phép truy cập vị trí trong cài đặt trình duyệt.";
+          message = "Vui lòng cho phép truy cập vị trí trong cài đặt trình duyệt.";
         } else if (error.code === error.TIMEOUT) {
-          message = "Yêu cầu định vị quá hạn. Vui lòng thử lại.";
+          message = "Yêu cầu định vị quá hạn.";
         }
-        alert(message);
+        showNotification(message, true);
         setIsSearching(false);
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }

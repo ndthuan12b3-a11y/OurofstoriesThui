@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Tooltip } from 'react-leaflet';
 import L, { Icon, divIcon } from 'leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import { motion, AnimatePresence } from 'motion/react';
@@ -21,35 +21,44 @@ const defaultIcon = new Icon({
 });
 
 // Custom marker with image
-const CustomMarker = ({ position, imageUrl, isOffline, label, animate = true }: { 
+const CustomMarker = ({ position, imageUrl, isOffline, label }: { 
   position: [number, number], 
   imageUrl: string, 
   isOffline?: boolean, 
-  label: string,
-  animate?: boolean
+  label: string
 }) => {
   const icon = useMemo(() => divIcon({
-    className: 'custom-marker',
+    className: 'custom-div-icon',
     html: `
-      <div class="relative w-10 h-10 group ${isOffline ? 'opacity-60 grayscale-[0.5] blur-[0.5px]' : ''}">
-        <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 bg-white rotate-45 border-r border-b border-gray-100"></div>
-        <div class="w-full h-full rounded-2xl border-4 border-white shadow-lg overflow-hidden group-hover:scale-110 transition-transform bg-rose-50">
+      <div class="relative group">
+        <div class="w-12 h-12 rounded-2xl overflow-hidden border-4 ${isOffline ? 'border-gray-200 grayscale' : 'border-rose-400'} shadow-2xl relative z-10 bg-white">
           <img src="${imageUrl}" class="w-full h-full object-cover" />
+          ${!isOffline ? '<div class="absolute top-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full animate-pulse"></div>' : ''}
         </div>
-        ${!isOffline ? '<div class="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white shadow-sm animate-pulse"></div>' : ''}
+        <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 ${isOffline ? 'bg-gray-200' : 'bg-rose-400'} rotate-45 shadow-lg"></div>
+        ${!isOffline ? `
+          <div class="absolute inset-x-0 inset-y-0 rounded-2xl bg-rose-400/20 animate-ping"></div>
+          <div class="absolute -inset-2 rounded-2xl border-2 border-rose-400/30 animate-pulse"></div>
+        ` : ''}
       </div>
     `,
-    iconSize: [40, 40],
-    iconAnchor: [20, 40]
+    iconSize: [48, 48],
+    iconAnchor: [24, 48],
   }), [imageUrl, isOffline]);
 
   return (
     <Marker position={position} icon={icon}>
-      <Popup>
-        <div className="text-center font-bold text-gray-800">
-          {label}
+      <Popup className="custom-popup">
+        <div className="text-center p-1">
+          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">{isOffline ? 'Offline' : 'Online'}</p>
+          <p className="text-xs font-bold text-gray-800">{label}</p>
         </div>
       </Popup>
+      <Tooltip direction="top" offset={[0, -20]} opacity={1} permanent>
+        <span className="text-[10px] font-bold text-rose-500 bg-white/90 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-sm border border-rose-100">
+          {label}
+        </span>
+      </Tooltip>
     </Marker>
   );
 };
@@ -83,10 +92,11 @@ const ZoomControl = () => {
 
 // Helper to validate coordinates
 const isValidCoords = (coords: any): coords is [number, number] => {
-  return Array.isArray(coords) && 
-         coords.length === 2 && 
-         typeof coords[0] === 'number' && !isNaN(coords[0]) &&
-         typeof coords[1] === 'number' && !isNaN(coords[1]);
+  if (!Array.isArray(coords) || coords.length !== 2) return false;
+  const lat = Number(coords[0]);
+  const lng = Number(coords[1]);
+  return typeof lat === 'number' && !isNaN(lat) && isFinite(lat) &&
+         typeof lng === 'number' && !isNaN(lng) && isFinite(lng);
 };
 
 // Component to handle external "FlyTo" commands
@@ -94,10 +104,14 @@ const FlyToController = ({ target }: { target: [number, number] | null }) => {
   const map = useMap();
   React.useEffect(() => {
     if (target && isValidCoords(target)) {
-      map.flyTo(target, 17, {
-        duration: 2,
-        easeLinearity: 0.25
-      });
+      try {
+        map.flyTo(target, 17, {
+          duration: 2,
+          easeLinearity: 0.25
+        });
+      } catch (e) {
+        console.error("FlyTo error:", e);
+      }
     }
   }, [target, map]);
   return null;
@@ -127,13 +141,27 @@ const MapController = ({
   refocusKey: number
 }) => {
   const map = useMap();
-  const hasFittedRef = React.useRef(false);
+  const hasFittedLiveRef = React.useRef(false);
+  const hasFittedItemsRef = React.useRef(false);
   
   React.useEffect(() => {
-    // Only auto-fit bounds on initial load when locations are available, 
-    // or when refocusKey changes (manual button press)
+    // 1. Manual Refocus (Button or specific interaction)
     const isManual = refocusKey > 0 && refocusKey !== (map as any)._lastRefocusKey;
-    if (hasFittedRef.current && !isManual) return;
+    
+    // 2. Initial Live Locations (One-time auto fit for live)
+    const hasLive = (userLocation && isValidCoords(userLocation)) || (otherLocation && isValidCoords(otherLocation));
+    const shouldFitLive = hasLive && !hasFittedLiveRef.current;
+
+    // 3. Initial Map Items (Fallback)
+    const shouldFitItems = mapItems.length > 0 && !hasFittedItemsRef.current && !hasLive;
+
+    // 4. Auto-follow: If both are active and moving, keep them in view
+    // Only auto-follow if the user hasn't manually panned away recently
+    const lastUserInteraction = (map as any)._lastInteractionTime || 0;
+    const isInteracting = Date.now() - lastUserInteraction < 5000;
+    const shouldAutoFollow = hasLive && !isInteracting && hasFittedLiveRef.current;
+
+    if (!isManual && !shouldFitLive && !shouldFitItems && !shouldAutoFollow) return;
 
     const points: [number, number][] = [];
     if (userLocation && isValidCoords(userLocation)) points.push(userLocation);
@@ -153,9 +181,18 @@ const MapController = ({
     if (points.length > 0) {
       try {
         const bounds = L.latLngBounds(points);
-        if (bounds.isValid()) {
-          map.fitBounds(bounds, { padding: [100, 100], maxZoom: 15 });
-          hasFittedRef.current = true;
+        if (bounds && bounds.isValid()) {
+          const padding: [number, number] = window.innerWidth < 768 ? [60, 60] : [120, 120];
+          
+          // Use flyToBounds if it's an auto-follow update for smoothness
+          if (shouldAutoFollow) {
+            map.flyToBounds(bounds, { padding, duration: 1.5, easeLinearity: 0.25, maxZoom: 15 });
+          } else {
+            map.fitBounds(bounds, { padding, maxZoom: 15 });
+          }
+          
+          if (hasLive) hasFittedLiveRef.current = true;
+          if (mapItems.length > 0) hasFittedItemsRef.current = true;
           if (isManual) (map as any)._lastRefocusKey = refocusKey;
         }
       } catch (e) {
@@ -164,11 +201,23 @@ const MapController = ({
     }
   }, [userLocation, otherLocation, map, mapItems, refocusKey]);
 
+  // Track map interactions to pause auto-follow
+  React.useEffect(() => {
+    const setInteraction = () => {
+      (map as any)._lastInteractionTime = Date.now();
+    };
+    map.on('movestart', setInteraction);
+    map.on('zoomstart', setInteraction);
+    return () => {
+      map.off('movestart', setInteraction);
+      map.off('zoomstart', setInteraction);
+    };
+  }, [map]);
+
   return null;
 };
 
 export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, userProfile }) => {
-  const { isOtherOnline } = usePresence();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showList, setShowList] = useState(true);
   const [selectedItem, setSelectedItem] = useState<Event | null>(null);
@@ -183,7 +232,14 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   const lastUpdateRef = React.useRef<number>(0);
   const lastPosRef = React.useRef<[number, number] | null>(null);
 
-  // Helper: Calculate distance in KM
+  const isOtherOnline = useMemo(() => {
+    if (!otherLastUpdate) return false;
+    const lastUpdate = new Date(otherLastUpdate).getTime();
+    const now = Date.now();
+    // Consider online if update within 2 minutes
+    return (now - lastUpdate) < 120000;
+  }, [otherLastUpdate]);
+
   const distance = useMemo(() => {
     if (!userLocation || !otherLocation) return null;
     const [lat1, lon1] = userLocation;
@@ -201,13 +257,24 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   }, [userLocation, otherLocation]);
 
   // Helper: Reverse Geocode with simplified logic and rate limit protection
+  const fetchingRef = React.useRef<{ [key: string]: boolean }>({});
   const getAddress = async (lat: number, lng: number, setter: (addr: string) => void) => {
     if (!lat || !lng) return;
+    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    if (fetchingRef.current[key]) return;
+    
     try {
+      fetchingRef.current[key] = true;
       // Small delay to avoid hitting OpenStreetMap too fast
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 1500));
       const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (res.status === 429) {
+          console.warn("Nominatim rate limited");
+          return;
+        }
+        throw new Error("API error");
+      }
       const data = await res.json();
       if (data && data.address) {
         const addr = data.address.road || data.address.suburb || data.address.city || data.address.state || data.display_name.split(',')[0];
@@ -215,6 +282,8 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
       }
     } catch (e) {
       console.error("Geocoding failed", e);
+    } finally {
+      fetchingRef.current[key] = false;
     }
   };
 
@@ -270,23 +339,57 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           
           // Cast values to Number explicitly
           const coords: [number, number] = [Number(newLoc.lat), Number(newLoc.lng)];
+          if (!isValidCoords(coords)) return;
           
           if (newLoc.user_id === userId) {
             setUserLocation(coords);
             getAddress(coords[0], coords[1], setUserAddress);
+            // Cache locally for instant load next time
+            localStorage.setItem(`last_loc_${userId}`, JSON.stringify(coords));
           } else {
             setOtherLocation(coords);
             setOtherLastUpdate(newLoc.updated_at);
             getAddress(coords[0], coords[1], setOtherAddress);
+            localStorage.setItem(`last_loc_other`, JSON.stringify({ coords, updated_at: newLoc.updated_at, user_id: newLoc.user_id }));
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log("Joined location channel");
+        }
+      });
 
     // 2. Fetch initial locations
     const fetchLocations = async () => {
       try {
-        // Fetch MY location
+        // Try local cache first for snappier UI
+        const cachedMe = localStorage.getItem(`last_loc_${userId}`);
+        if (cachedMe) {
+          try {
+            const parsed = JSON.parse(cachedMe);
+            if (isValidCoords(parsed)) {
+              setUserLocation(parsed);
+            }
+          } catch (e) {
+            console.warn("Me cache invalid", e);
+          }
+        }
+
+        const cachedOther = localStorage.getItem(`last_loc_other`);
+        if (cachedOther) {
+          try {
+            const parsed = JSON.parse(cachedOther);
+            if (parsed.coords && isValidCoords(parsed.coords)) {
+              setOtherLocation(parsed.coords);
+              setOtherLastUpdate(parsed.updated_at);
+            }
+          } catch (e) {
+            console.warn("Other cache invalid", e);
+          }
+        }
+
+        // Fetch MY location from DB
         const { data: myData } = await supabase
           .from('locations')
           .select('*')
@@ -297,17 +400,10 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           const coords: [number, number] = [Number(myData.lat), Number(myData.lng)];
           setUserLocation(coords);
           getAddress(coords[0], coords[1], setUserAddress);
-        } else {
-          // Fallback if no specific record yet: try browser geolocation once
-          if ("geolocation" in navigator) {
-            navigator.geolocation.getCurrentPosition((pos) => {
-              setUserLocation([pos.coords.latitude, pos.coords.longitude]);
-              getAddress(pos.coords.latitude, pos.coords.longitude, setUserAddress);
-            }, undefined, { enableHighAccuracy: false });
-          }
+          localStorage.setItem(`last_loc_${userId}`, JSON.stringify(coords));
         }
 
-        // Fetch OTHER person location
+        // Fetch OTHER person location from DB
         const { data: others, error } = await supabase
           .from('locations')
           .select('*')
@@ -315,17 +411,14 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           .order('updated_at', { ascending: false })
           .limit(1);
         
-        if (error) {
-          console.error("Fetch initial location error:", error);
-        }
-        
         if (others && others.length > 0) {
           const coords: [number, number] = [Number(others[0].lat), Number(others[0].lng)];
           setOtherLocation(coords);
           setOtherLastUpdate(others[0].updated_at || '');
           getAddress(coords[0], coords[1], setOtherAddress);
+          localStorage.setItem(`last_loc_other`, JSON.stringify({ coords, updated_at: others[0].updated_at, user_id: others[0].user_id }));
 
-          // Fetch other user's profile avatar
+          // Fetch profile
           const { data: profile } = await supabase
             .from('profiles')
             .select('avatar_url')
@@ -367,11 +460,14 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   };
 
   const handleSelectFromList = (item: Event) => {
-    const lat = item.location!.lat;
-    const lng = item.location!.lng;
-    setFlyToCoords([lat, lng]);
-    setSelectedItem(item);
-    if (window.innerWidth < 768) setShowList(false); // Close list on mobile after selection
+    if (!item.location) return;
+    const lat = Number(item.location.lat);
+    const lng = Number(item.location.lng);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      setFlyToCoords([lat, lng]);
+      setSelectedItem(item);
+      if (window.innerWidth < 768) setShowList(false);
+    }
   };
 
   const handleSelectLiveLocation = (coords: [number, number], label: string) => {
@@ -395,70 +491,13 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
       >
         <div className="p-4 border-b border-white/20 flex items-center justify-between">
           <h3 className="text-xs font-black text-gray-800 uppercase tracking-tight flex items-center gap-2">
-            <Zap size={14} className="text-rose-500 fill-rose-500 animate-pulse" />
-            Live & Kỷ niệm
+            Kỷ niệm
           </h3>
           <button onClick={() => setShowList(false)} className="md:hidden p-1 text-gray-400">
             <X size={16} />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
-          {/* Live Section */}
-          {(userLocation || otherLocation) && (
-            <div className="mb-4 space-y-2">
-              <p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest px-2">Trực tuyến</p>
-              {userLocation && (
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => handleSelectLiveLocation(userLocation, "Bạn")}
-                  className="w-full p-2 rounded-xl flex items-center gap-2 bg-blue-50/50 border border-blue-100/50 text-left hover:bg-blue-100/50 transition-all"
-                >
-                  <div className="w-10 h-10 rounded-lg overflow-hidden border-2 border-blue-200">
-                    <img src={userProfile?.avatar_url || 'https://placehold.co/100x100?text=Me'} className="w-full h-full object-cover" alt="" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-[10px] font-bold text-gray-800 truncate">Vị trí của bạn</h4>
-                    <p className="text-[9px] text-blue-500 animate-pulse font-medium truncate">
-                      {userAddress || 'Đang chia sẻ trực tiếp...'}
-                    </p>
-                  </div>
-                  <Zap size={10} className="text-blue-500 fill-blue-500" />
-                </motion.button>
-              )}
-              {otherLocation && (
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => handleSelectLiveLocation(otherLocation, "Người ấy")}
-                  className={`w-full p-2 rounded-xl flex items-center gap-2 border text-left transition-all ${isOtherOnline ? 'bg-rose-50/50 border-rose-100/50' : 'bg-gray-50/50 border-gray-100/50 opacity-70'}`}
-                >
-                  <div className="w-10 h-10 rounded-lg overflow-hidden border-2 border-rose-200 relative">
-                    <img src={otherProfile?.avatar_url || config.avatar_url || 'https://placehold.co/100x100?text=❤️'} className="w-full h-full object-cover" alt="" />
-                    {isOtherOnline && <div className="absolute top-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></div>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-[10px] font-bold text-gray-800 truncate">Vị trí của người ấy</h4>
-                    <p className={`text-[9px] font-medium truncate ${isOtherOnline ? 'text-rose-500 animate-pulse' : 'text-gray-400'}`}>
-                      {otherAddress || (isOtherOnline ? 'Đang online ❤️' : 'Đã offline 🌙')}
-                      {otherLastUpdate && ` (${formatTime(otherLastUpdate)})`}
-                    </p>
-                  </div>
-                  <Zap size={10} className={isOtherOnline ? 'text-rose-500 fill-rose-500' : 'text-gray-300'} />
-                </motion.button>
-              )}
-              
-              {distance && (
-                <div className="px-2 py-1.5 bg-rose-50/30 rounded-lg flex items-center justify-center gap-2 border border-rose-100/30 mt-1">
-                  <div className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping"></div>
-                  <p className="text-[9px] font-bold text-rose-400 uppercase tracking-widest leading-none">
-                    Cách nhau {distance} km
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Memories Section */}
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2">Địa điểm cũ</p>
           {mapItems.map(item => (
@@ -493,6 +532,17 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
         {/* HUD Controls */}
         <div className="absolute top-6 left-6 right-6 z-[1000] flex items-center justify-between pointer-events-none">
           <div className="flex gap-2 pointer-events-auto">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setRefocusKey(prev => prev + 1)}
+              className="bg-white/70 backdrop-blur-md px-5 py-3 rounded-3xl border border-white/50 shadow-lg flex items-center gap-3 text-gray-800 hover:text-rose-500 transition-colors"
+              title="Tìm 2 đứa"
+            >
+              <Zap size={20} className="text-rose-500" />
+              <span className="text-xs font-bold font-sans">Tìm 2 đứa</span>
+            </motion.button>
+
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -603,7 +653,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
               position={userLocation} 
               imageUrl={userProfile?.avatar_url || 'https://placehold.co/100x100?text=Me'} 
               isOffline={false}
-              label={`Bạn ${userAddress ? `(${userAddress})` : ''}`}
+              label={`Bạn ❤️`}
             />
           )}
           {otherLocation && isValidCoords(otherLocation) && (
@@ -611,7 +661,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
               position={otherLocation} 
               imageUrl={otherProfile?.avatar_url || config.avatar_url || 'https://placehold.co/100x100?text=❤️'} 
               isOffline={!isOtherOnline}
-              label={isOtherOnline ? `Người ấy ❤️ ${otherAddress ? `(${otherAddress})` : ''}` : `Vị trí cuối 🌙 ${otherAddress ? `(${otherAddress})` : ''}`}
+              label={isOtherOnline ? `Người ấy đang online ❤️` : `Vị trí cuối của em 🌙`}
             />
           )}
 
