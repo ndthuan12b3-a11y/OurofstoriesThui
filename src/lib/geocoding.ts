@@ -15,13 +15,8 @@ interface NominatimResponse {
 
 export const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
   try {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
-    const response = await fetch(url, {
-      headers: {
-        'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
-        'User-Agent': 'ThuiHouseApp/1.0'
-      }
-    });
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=vi`;
+    const response = await fetch(url);
     
     if (!response.ok) return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
     
@@ -46,19 +41,14 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<string> 
 
 export const searchGeocode = async (query: string, bias?: { lat: number, lng: number }): Promise<any[]> => {
   try {
-    let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10`;
+    let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10&accept-language=vi`;
     if (bias) {
       const b = 1.0; 
       const viewbox = `${bias.lng - b},${bias.lat + b},${bias.lng + b},${bias.lat - b}`;
       url += `&viewbox=${viewbox}`;
     }
     
-    const response = await fetch(url, {
-      headers: {
-        'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
-        'User-Agent': 'ThuiHouseApp/1.0'
-      }
-    });
+    const response = await fetch(url);
 
     if (!response.ok) return [];
     return await response.json();

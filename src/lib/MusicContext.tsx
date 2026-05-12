@@ -94,35 +94,41 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         window.removeEventListener('click', unlockAudio);
         window.removeEventListener('touchstart', unlockAudio);
 
-        const playPromise = audioRef.current.play();
-        
-        if (playPromise !== undefined) {
-          playPromise.then(() => {
-            setIsUnlocked(true);
-            // Sử dụng ref để lấy giá trị mới nhất của isPlaying
-            if (!isPlayingRef.current) {
-              audioRef.current?.pause();
-            }
-          }).catch(error => {
-            const errorMessage = error.message || String(error);
-            // Bỏ qua lỗi do bị ngắt quãng (AbortError) hoặc các biến thể của nó
-            if (
-              error.name === 'AbortError' || 
-              errorMessage.toLowerCase().includes('interrupted') ||
-              errorMessage.toLowerCase().includes('pause()')
-            ) {
-              return;
-            }
-
-            if (audioRef.current?.src) {
-              console.error("Unlock error:", error);
-              // Nếu lỗi khác (ví dụ: mạng), vẫn thử gán lại listener để người dùng click lại
-              window.addEventListener('click', unlockAudio);
-              window.addEventListener('touchstart', unlockAudio, { passive: true });
-            } else {
+        if (audioRef.current.src && audioRef.current.src !== window.location.href) {
+          const playPromise = audioRef.current.play();
+          
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
               setIsUnlocked(true);
-            }
-          });
+              // Sử dụng ref để lấy giá trị mới nhất của isPlaying
+              if (!isPlayingRef.current) {
+                audioRef.current?.pause();
+              }
+            }).catch(error => {
+              const errorMessage = error.message || String(error);
+              // Bỏ qua lỗi do bị ngắt quãng (AbortError) hoặc các biến thể của nó
+              if (
+                error.name === 'AbortError' || 
+                error.name === 'NotSupportedError' ||
+                errorMessage.toLowerCase().includes('supported source') ||
+                errorMessage.toLowerCase().includes('interrupted') ||
+                errorMessage.toLowerCase().includes('pause()')
+              ) {
+                return;
+              }
+
+              if (audioRef.current?.src) {
+                console.error("Unlock error:", error);
+                // Nếu lỗi khác (ví dụ: mạng), vẫn thử gán lại listener để người dùng click lại
+                window.addEventListener('click', unlockAudio);
+                window.addEventListener('touchstart', unlockAudio, { passive: true });
+              } else {
+                setIsUnlocked(true);
+              }
+            });
+          }
+        } else {
+          setIsUnlocked(true);
         }
       }
     };
@@ -147,6 +153,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           const errorMessage = error.message || String(error);
           if (
             error.name !== 'AbortError' && 
+            !errorMessage.toLowerCase().includes('supported source') &&
+            error.name !== 'NotSupportedError' &&
             !errorMessage.toLowerCase().includes('interrupted') &&
             !errorMessage.toLowerCase().includes('pause()')
           ) {
@@ -195,7 +203,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         {children}
         <audio 
           ref={audioRef} 
-          src={currentTrack?.music_url}
+          src={currentTrack?.music_url || undefined}
           onEnded={() => isRepeat ? audioRef.current?.play() : playNext()} 
           preload="auto"
         />

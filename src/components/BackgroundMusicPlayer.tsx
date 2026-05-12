@@ -13,6 +13,8 @@ export const BackgroundMusicPlayer: React.FC<{ active: boolean }> = ({ active })
             const errorMessage = error.message || String(error);
             if (
               error.name !== 'AbortError' && 
+              error.name !== 'NotSupportedError' &&
+              !errorMessage.toLowerCase().includes('supported source') &&
               !errorMessage.toLowerCase().includes('interrupted') &&
               !errorMessage.toLowerCase().includes('pause()')
             ) {
