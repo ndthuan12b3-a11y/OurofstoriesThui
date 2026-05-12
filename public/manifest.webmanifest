@@ -1,7 +1,7 @@
 {
-  "name": "Hành Trình Của Chúng Ta",
-  "short_name": "Kỷ Niệm",
-  "description": "Ứng dụng lưu giữ kỷ niệm tình yêu với bộ sưu tập ảnh, dòng thời gian và trình phát nhạc.",
+  "name": "Thúi House",
+  "short_name": "Thúi House",
+  "description": "Hành trình kỷ niệm tình yêu của chúng mình với AI Storyteller, Love Mood Tracker và thời gian thực.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

@@ -162,29 +162,36 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
 
       const base64Data = await base64Promise;
 
-      const response = await ai.models.generateContent({
+      const result = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                data: base64Data,
-                mimeType: uploadForm.photoFile.type
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  data: base64Data,
+                  mimeType: uploadForm.photoFile.type
+                }
+              },
+              {
+                text: "Hãy viết một câu caption (chú thích) thật hay, lãng mạn hoặc hài hước cho bức ảnh này của một cặp đôi. Chỉ trả về nội dung caption, không thêm bất kỳ lời dẫn nào khác. Ngôn ngữ: Tiếng Việt."
               }
-            },
-            {
-              text: "Hãy viết một câu caption (chú thích) thật hay, lãng mạn hoặc hài hước cho bức ảnh này của một cặp đôi. Chỉ trả về nội dung caption, không thêm bất kỳ lời dẫn nào khác. Ngôn ngữ: Tiếng Việt."
-            }
-          ]
-        },
+            ]
+          }
+        ],
       });
 
-      const caption = response.text?.trim() || "";
+      const caption = result.text?.trim() || "";
       setUploadForm(prev => ({ ...prev, description: caption }));
       showNotification("Đã tạo caption bằng AI!");
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Caption Error:", error);
-      showNotification("Lỗi khi tạo caption bằng AI!", true);
+      if (error?.message?.includes('429') || error?.status === 429) {
+        showNotification("AI đang nghỉ ngơi, vui lòng thử lại sau!", true);
+      } else {
+        showNotification("Lỗi khi tạo caption bằng AI!", true);
+      }
     } finally {
       setIsGeneratingCaption(false);
     }

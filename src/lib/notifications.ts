@@ -12,12 +12,6 @@ export const dismissAllNotifications = () => {
   }
 };
 
-// Global polyfill to fix "dismissAll is not defined" errors
-if (typeof window !== 'undefined') {
-  (window as any).dismissAll = dismissAllNotifications;
-  (window as any).dismissAllNotifications = dismissAllNotifications;
-}
-
 export const showNotification = (message: string, isError = false) => {
   let displayMessage = message;
   

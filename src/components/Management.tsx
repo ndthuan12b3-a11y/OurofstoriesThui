@@ -10,16 +10,17 @@ import {
 import { showNotification } from '../lib/notifications';
 import { Modal } from './Modal';
 import { cn, formatDate } from '../lib/utils';
-import { useMusic } from '../lib/MusicContext';
+import { useMusic, useMusicProgress } from '../lib/MusicContext';
 import { Play, Pause, SkipBack, SkipForward, Repeat } from 'lucide-react';
 
 import { LocationPicker } from './LocationPicker';
 
 const MusicManagementPlayer: React.FC = () => {
   const { 
-    currentTrack, isPlaying, isRepeat, currentTime, duration, volume,
+    currentTrack, isPlaying, isRepeat, volume,
     togglePlay, playNext, playPrev, toggleRepeat, seekTo, setVolume 
   } = useMusic();
+  const { currentTime, duration } = useMusicProgress();
 
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);

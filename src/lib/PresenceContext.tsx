@@ -15,8 +15,48 @@ const PresenceContext = createContext<PresenceState | undefined>(undefined);
 export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: string | undefined }> = ({ children, userId }) => {
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [isOtherOnline, setIsOtherOnline] = useState(false);
+  const [isOtherActiveRecent, setIsOtherActiveRecent] = useState(false);
   const [otherLocation, setOtherLocation] = useState<[number, number] | null>(null);
   const channelRef = React.useRef<any>(null);
+  const lastThrottleRef = React.useRef<number>(0);
+  const lastPendingRef = React.useRef<[number, number] | null>(null);
+
+  // Poll database for other user's last location and activity
+  useEffect(() => {
+    if (!userId) return;
+
+    const fetchOtherStatus = async () => {
+      // Find the most recent location update from anyone else
+      const { data, error } = await supabase
+        .from('locations')
+        .select('*')
+        .neq('user_id', userId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (data && !error) {
+        const lastUpdate = new Date(data.updated_at).getTime();
+        const now = Date.now();
+        
+        // If updated in the last 10 minutes, count as "Active" or "Online"
+        const isActive = (now - lastUpdate) < 10 * 60 * 1000;
+        setIsOtherActiveRecent(isActive);
+        
+        // Update location if it's more recent than what we have from presence
+        // or if we don't have presence currently
+        if (data.lat !== undefined && data.lng !== undefined) {
+          setOtherLocation([data.lat, data.lng]);
+        }
+      } else {
+        setIsOtherActiveRecent(false);
+      }
+    };
+
+    fetchOtherStatus();
+    const interval = setInterval(fetchOtherStatus, 30000); // Poll every 30s
+    return () => clearInterval(interval);
+  }, [userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -36,7 +76,7 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
         const state = channel.presenceState();
         const users = Object.keys(state);
         setOnlineUsers(users);
-        setIsOtherOnline(users.length > 1);
+        setIsOtherOnline(users.some(id => id !== userId));
 
         // Find other user's location in presence state
         const otherId = users.find(id => id !== userId);
@@ -44,8 +84,23 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
           const presence = state[otherId] as any[];
           if (presence && presence.length > 0) {
             const latest = presence[presence.length - 1];
-            if (latest.lat && latest.lng) {
-              setOtherLocation([Number(latest.lat), Number(latest.lng)]);
+            if (latest.lat !== undefined && latest.lng !== undefined) {
+              const lat = Number(latest.lat);
+              const lng = Number(latest.lng);
+              
+              if (!isNaN(lat) && !isNaN(lng)) {
+                const newPos: [number, number] = [lat, lng];
+                
+                // Simple local throttle for UI updates
+                const now = Date.now();
+                if (!lastThrottleRef.current || now - lastThrottleRef.current > 500) {
+                  setOtherLocation(newPos);
+                  lastThrottleRef.current = now;
+                  lastPendingRef.current = null;
+                } else {
+                  lastPendingRef.current = newPos;
+                }
+              }
             }
           }
         }
@@ -77,6 +132,18 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
     };
   }, [userId]);
 
+  // Periodic check to apply pending throttled updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (lastPendingRef.current) {
+        setOtherLocation(lastPendingRef.current);
+        lastPendingRef.current = null;
+        lastThrottleRef.current = Date.now();
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const sendPing = (message: string) => {
     if (channelRef.current) {
       channelRef.current.send({
@@ -98,7 +165,13 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
   };
 
   return (
-    <PresenceContext.Provider value={{ onlineUsers, isOtherOnline, otherLocation, sendPing, updateLocation }}>
+    <PresenceContext.Provider value={{ 
+      onlineUsers, 
+      isOtherOnline: isOtherOnline || isOtherActiveRecent, 
+      otherLocation, 
+      sendPing, 
+      updateLocation 
+    }}>
       {children}
     </PresenceContext.Provider>
   );

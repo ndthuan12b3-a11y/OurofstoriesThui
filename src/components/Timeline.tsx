@@ -15,9 +15,9 @@ import {
 import { TimelineSkeleton } from './Skeleton';
 import { Modal } from './Modal';
 import { showNotification } from '../lib/notifications';
-import { JourneyStoryteller } from './JourneyStoryteller';
-import { LocationPicker } from './LocationPicker';
-import { StoryMap } from './StoryMap';
+const JourneyStoryteller = React.lazy(() => import('./JourneyStoryteller').then(m => ({ default: m.JourneyStoryteller })));
+const LocationPicker = React.lazy(() => import('./LocationPicker').then(m => ({ default: m.LocationPicker })));
+const StoryMap = React.lazy(() => import('./StoryMap').then(m => ({ default: m.StoryMap })));
 
 interface TimelineProps {
   config: AppConfig;
@@ -38,53 +38,126 @@ interface Event {
 const EventItem = React.memo(({ event, index, onClick }: { event: Event; index: number; onClick: (e: Event) => void }) => (
   <motion.div
     key={event.id}
-    initial={{ opacity: 0, x: -20 }}
-    whileInView={{ opacity: 1, x: 0 }}
-    viewport={{ once: true, margin: "-50px" }}
-    transition={{ delay: Math.min(index * 0.05, 0.3) }}
-    className="relative ml-16 group"
+    initial={{ opacity: 0, y: 20 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    viewport={{ once: true, margin: "-100px" }}
+    transition={{ delay: Math.min(index * 0.05, 0.3), duration: 0.5, ease: "easeOut" }}
+    className="relative pl-12 md:pl-16 group"
   >
     {/* Timeline Dot */}
-    <div className="absolute -left-12 top-6 w-4 h-4 bg-white border-4 border-rose-300 rounded-full shadow-md z-10 group-hover:scale-125 transition-transform" />
+    <div className="absolute left-4.5 md:left-6.5 top-8 w-3 h-3 bg-white border-[3px] border-rose-300 rounded-full shadow-[0_0_0_4px_rgba(251,113,133,0.1)] z-10 group-hover:scale-125 transition-transform duration-300" />
     
-    {/* Date Badge */}
-    <div className="absolute -left-[4.5rem] top-12 text-[10px] font-black text-rose-300 uppercase tracking-tighter rotate-90 origin-left whitespace-nowrap">
-      {formatDate(event.date)}
-    </div>
+    {/* Date Line - Hidden on very small screens */}
+    <div className="hidden sm:block absolute left-[-4rem] top-8 w-24 border-t border-dashed border-rose-200 opacity-50" />
 
-    {/* Compact Card */}
+    {/* Elegant Card */}
     <div 
-      className="bg-white rounded-3xl p-4 shadow-md hover:shadow-xl transition-all duration-300 border border-gray-50 flex flex-col sm:flex-row gap-4 group-hover:-translate-y-1 cursor-pointer"
+      className="bg-white/70 backdrop-blur-sm rounded-3xl p-3 md:p-4 shadow-sm hover:shadow-xl transition-all duration-500 border border-white/50 flex flex-col sm:flex-row gap-4 group-hover:-translate-y-1 cursor-pointer overflow-hidden"
       onClick={() => onClick(event)}
     >
-      {/* Small Image */}
-      <div className="w-full sm:w-32 h-32 rounded-2xl overflow-hidden shrink-0 shadow-inner bg-gray-50">
+      {/* High Quality Thumbnail */}
+      <div className="w-full sm:w-28 h-28 rounded-2xl overflow-hidden shrink-0 shadow-sm relative group/img">
         <img
           src={getOptimizedImageUrl(event.photo_url, 400)}
           alt={event.title}
           loading="lazy"
           referrerPolicy="no-referrer"
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
         />
+        <div className="absolute inset-0 bg-black/5 group-hover/img:bg-transparent transition-colors" />
       </div>
 
       {/* Content */}
-      <div className="flex-grow flex flex-col justify-center">
-        <div className="flex items-center gap-2 mb-1">
-          <Sparkles size={14} className="text-yellow-400" />
-          <h3 className="text-lg font-black text-gray-800 leading-tight">{event.title}</h3>
+      <div className="flex-grow flex flex-col justify-between py-1">
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <h3 className="text-lg font-black text-slate-800 leading-tight group-hover:text-primary transition-colors">{event.title}</h3>
+            <span className="text-[9px] font-black text-rose-300/80 bg-rose-50 px-2 py-0.5 rounded-full uppercase tracking-widest whitespace-nowrap">
+              {formatDate(event.date)}
+            </span>
+          </div>
+          <p className="text-slate-500 text-sm leading-relaxed line-clamp-2 mb-2 font-medium">
+            {event.description}
+          </p>
         </div>
-        <p className="text-gray-500 text-sm leading-relaxed line-clamp-2 mb-2">
-          {event.description}
-        </p>
-        <div className="flex items-center gap-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-          <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(event.date)}</span>
-          <span className="flex items-center gap-1 text-rose-300"><Heart size={10} fill="currentColor" /> Kỷ niệm</span>
+        
+        <div className="flex items-center gap-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">
+          <span className="flex items-center gap-1.5"><MapPin size={10} className="text-blue-300" /> {event.location?.address_name || "Khoảnh khắc"}</span>
+          <span className="flex items-center gap-1.5 ml-auto text-rose-300 group-hover:translate-x-1 transition-transform">Xem chi tiết <ChevronRight size={10} /></span>
         </div>
       </div>
     </div>
   </motion.div>
 ));
+
+// Love Timer Component for real-time updates - Enhanced & Cute
+const LoveTimer = ({ startDate }: { startDate: string }) => {
+  const [time, setTime] = useState({
+    days: 0,
+    hours: 0,
+    minutes: 0,
+    seconds: 0
+  });
+
+  useEffect(() => {
+    const calculate = () => {
+      const start = new Date(startDate).getTime();
+      const now = new Date().getTime();
+      const diff = Math.max(0, now - start);
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      setTime({ days, hours, minutes, seconds });
+    };
+
+    calculate();
+    const timer = setInterval(calculate, 1000);
+    return () => clearInterval(timer);
+  }, [startDate]);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex items-center gap-2 bg-gradient-to-r from-rose-100/80 to-pink-50/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-rose-200/50 shadow-sm"
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex flex-col items-center">
+          <span className="text-xl md:text-2xl font-black text-rose-500 leading-none tabular-nums">{time.days}</span>
+          <span className="text-[8px] font-black text-rose-300 uppercase tracking-widest mt-1">Ngày</span>
+        </div>
+        <div className="text-rose-200 font-bold self-start mt-1">:</div>
+        <div className="flex flex-col items-center">
+          <span className="text-xl md:text-2xl font-black text-slate-700 leading-none tabular-nums">{String(time.hours).padStart(2, '0')}</span>
+          <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">Giờ</span>
+        </div>
+        <div className="text-rose-200 font-bold self-start mt-1">:</div>
+        <div className="flex flex-col items-center">
+          <span className="text-xl md:text-2xl font-black text-slate-700 leading-none tabular-nums">{String(time.minutes).padStart(2, '0')}</span>
+          <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">Phút</span>
+        </div>
+        <div className="text-rose-200 font-bold self-start mt-1">:</div>
+        <div className="flex flex-col items-center">
+          <motion.span 
+            key={time.seconds}
+            initial={{ scale: 1.1, color: "#fb7185" }}
+            animate={{ scale: 1, color: "#475569" }}
+            className="text-xl md:text-2xl font-black leading-none tabular-nums transition-colors"
+          >
+            {String(time.seconds).padStart(2, '0')}
+          </motion.span>
+          <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">Giây</span>
+        </div>
+      </div>
+      <div className="ml-2 w-8 h-8 bg-white/50 rounded-xl flex items-center justify-center text-rose-400 shadow-inner">
+        <Heart size={16} fill="currentColor" className="animate-pulse" />
+      </div>
+    </motion.div>
+  );
+};
 
 export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
   const [events, setEvents] = useState<Event[]>([]);
@@ -140,24 +213,27 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
 
       const base64Data = await base64Promise;
 
-      const response = await ai.models.generateContent({
+      const result = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                data: base64Data,
-                mimeType: uploadForm.photoFile.type
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  data: base64Data,
+                  mimeType: uploadForm.photoFile.type
+                }
+              },
+              {
+                text: "Hãy viết một câu mô tả (title) ngắn gọn và một đoạn cảm xúc (description) thật hay, lãng mạn cho bức ảnh này của một cặp đôi. Định dạng trả về: [Title]: ... [Description]: ... Ngôn ngữ: Tiếng Việt."
               }
-            },
-            {
-              text: "Hãy viết một câu mô tả (title) ngắn gọn và một đoạn cảm xúc (description) thật hay, lãng mạn cho bức ảnh này của một cặp đôi. Định dạng trả về: [Title]: ... [Description]: ... Ngôn ngữ: Tiếng Việt."
-            }
-          ]
-        },
+            ]
+          }
+        ],
       });
 
-      const text = response.text?.trim() || "";
+      const text = result.text?.trim() || "";
       const titleMatch = text.match(/\[Title\]:\s*(.*)/i);
       const descMatch = text.match(/\[Description\]:\s*([\s\S]*)/i);
       
@@ -167,9 +243,13 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
         description: descMatch ? descMatch[1].trim() : prev.description
       }));
       showNotification("Đã tạo mô tả và cảm xúc bằng AI!");
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Caption Error:", error);
-      showNotification("Lỗi khi tạo mô tả bằng AI!", true);
+      if (error?.message?.includes('429') || error?.status === 429) {
+        showNotification("AI đang nghỉ ngơi, vui lòng thử lại sau!", true);
+      } else {
+        showNotification("Lỗi khi tạo mô tả bằng AI!", true);
+      }
     } finally {
       setIsGeneratingCaption(false);
     }
@@ -308,8 +388,6 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
     );
   }
 
-  const days = calculateDays(config.start_date);
-
   // Detail Modal Scroll Lock
   useEffect(() => {
     if (selectedEvent) {
@@ -324,149 +402,162 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
 
   return (
     <div className="max-w-4xl mx-auto px-4 pb-32 md:pb-20 animate-fadeIn">
-      {/* HUD Header - Modern & Compact */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-12 bg-white/40 backdrop-blur-md p-6 rounded-[2.5rem] border border-white/50">
-        <div className="flex items-center gap-4">
-          <motion.div 
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="relative"
-          >
-            <div className="w-20 h-20 md:w-24 md:h-24 rounded-3xl overflow-hidden border-2 border-white shadow-lg -rotate-3 hover:rotate-0 transition-transform duration-500">
-              <img
-                src={getOptimizedImageUrl(profileAvatar || config.avatar_url || "https://placehold.co/200x200/fcc4d6/333?text=Love", 400)}
-                alt="Couple"
-                className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-              />
-            </div>
+      {/* Header HUD - Minimal & Sleek */}
+      <div className="mb-10 flex flex-col md:flex-row items-stretch md:items-center gap-4">
+        <div className="flex-grow bg-white/60 backdrop-blur-xl p-4 md:p-5 rounded-[2rem] border border-white/80 shadow-sm flex items-center justify-between">
+          <div className="flex items-center gap-4">
             <motion.div 
-              animate={{ scale: [1, 1.2, 1] }}
-              transition={{ repeat: Infinity, duration: 2 }}
-              className="absolute -bottom-2 -right-2 w-8 h-8 bg-white rounded-xl shadow-lg flex items-center justify-center text-rose-400"
+              whileHover={{ scale: 1.05, rotate: 2 }}
+              className="relative shrink-0"
             >
-              <Heart size={16} fill="currentColor" />
+              <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl overflow-hidden border-2 border-white shadow-md">
+                <img
+                  src={getOptimizedImageUrl(profileAvatar || config.avatar_url || "https://placehold.co/200x200/fcc4d6/333?text=Love", 400)}
+                  alt="Couple"
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-rose-400 rounded-lg shadow-sm flex items-center justify-center text-white">
+                <Heart size={12} fill="currentColor" />
+              </div>
             </motion.div>
-          </motion.div>
-          
-          <div className="text-left">
-            <h1 className="text-xl md:text-2xl font-black text-gray-800 tracking-tight leading-none mb-1">
-              {config.name_male} <span className="text-rose-300">❤</span> {config.name_female}
-            </h1>
-            <div className="inline-flex items-center gap-1.5 text-rose-400 text-[10px] font-black uppercase tracking-widest">
-              <Calendar size={12} />
-              <span>{formatDate(config.start_date)}</span>
+            
+            <div className="flex flex-col">
+              <h1 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight leading-none mb-3">
+                Anh thúi xấu xí <Heart size={18} className="inline text-rose-300 mx-1" fill="currentColor" /> Em thúi xinh gái 😘
+              </h1>
+              <div className="flex flex-wrap items-center gap-4">
+                <LoveTimer startDate={config.start_date} />
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] hidden md:block">Kỷ niệm từ: {formatDate(config.start_date)}</span>
+              </div>
             </div>
           </div>
-        </div>
-
-          <div className="flex items-center gap-3">
+          
+          <div className="hidden sm:flex items-center gap-2">
             <button
               onClick={() => setShowMap(!showMap)}
               className={cn(
-                "p-3 rounded-2xl font-black text-[10px] uppercase tracking-widest soft-shadow transition-all flex items-center gap-2",
-                showMap ? "bg-gray-900 text-white" : "bg-white text-gray-400 border border-gray-100"
+                "p-3 rounded-2xl soft-shadow transition-all group",
+                showMap ? "bg-slate-800 text-white" : "bg-slate-50 text-slate-400 hover:bg-slate-100"
               )}
+              title="Story Map"
             >
-              <MapPin size={16} />
-              {showMap ? "Ẩn Bản Đồ" : "Story Map"}
+              <MapPin size={20} className={cn(showMap ? "text-blue-300" : "group-hover:text-slate-600")} />
             </button>
+            {HAS_VIEW_ACCESS() && (
+              <button
+                onClick={() => setIsUploadModalOpen(true)}
+                className="w-12 h-12 bg-primary text-white rounded-2xl flex items-center justify-center soft-shadow hover:scale-105 active:scale-95 transition-all"
+                title="Thêm kỷ niệm"
+              >
+                <Plus size={24} />
+              </button>
+            )}
+          </div>
+        </div>
+        
+        {/* Mobile Action Buttons */}
+        <div className="flex sm:hidden gap-2 h-14">
+          <button
+            onClick={() => setShowMap(!showMap)}
+            className={cn(
+              "flex-1 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all",
+              showMap ? "bg-slate-800 text-white" : "bg-white text-slate-400 border border-slate-100"
+            )}
+          >
+            <MapPin size={16} /> Story Map
+          </button>
           {HAS_VIEW_ACCESS() && (
             <button
               onClick={() => setIsUploadModalOpen(true)}
-              className="px-6 py-3 bg-primary text-white rounded-2xl font-black text-[10px] uppercase tracking-widest soft-shadow hover:scale-105 transition-all flex items-center gap-2"
+              className="flex-1 bg-primary text-white rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2"
             >
-              <Plus size={16} />
-              Thêm Kỷ Niệm
+              <Plus size={16} /> Thêm Mới
             </button>
           )}
         </div>
       </div>
 
       {HAS_VIEW_ACCESS() && (
-        <div className="grid grid-cols-1 lg:grid-cols-1 gap-8 mb-12">
+        <div className="space-y-6 mb-12">
           {showMap && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden rounded-[2.5rem] shadow-sm border border-white/50"
             >
-              <StoryMap events={events as any} config={config} />
+              <React.Suspense fallback={<div className="h-[400px] bg-slate-50 flex items-center justify-center text-[10px] font-black text-slate-300 uppercase tracking-widest">Đang tải bản đồ...</div>}>
+                <StoryMap events={events as any} config={config} />
+              </React.Suspense>
             </motion.div>
           )}
-          {/* Day Counter Widget - Transparent HUD style */}
-          <motion.div 
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="flex flex-row items-center justify-between gap-4 glassmorphism p-6 md:p-8"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-rose-400/10 rounded-2xl flex items-center justify-center text-rose-400 shrink-0">
-                <Sparkles size={28} />
-              </div>
-              <div className="flex flex-col">
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Together for</p>
-                <h2 className="text-3xl font-black text-gray-800 leading-none">{days} <span className="text-sm font-bold text-rose-300">days</span></h2>
-              </div>
-            </div>
-            <div className="flex flex-col items-end">
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Current Mood</p>
-              <p className="text-rose-400 font-black italic text-sm md:text-base">Say đắm ✨</p>
-            </div>
-          </motion.div>
 
-          {/* Story Hub */}
-          {stories.length > 0 && (
-            <div className="bg-white/40 backdrop-blur-md rounded-[2.5rem] p-6 border border-white/50 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between mb-4 px-2">
-                <h3 className="text-[10px] font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest">
-                  <BookOpen size={14} className="text-rose-400" />
-                  Story Library
-                </h3>
-                <span className="text-[8px] font-bold text-rose-300 uppercase tracking-[0.2em]">{stories.length} stories</span>
+          {/* Story Library & Hub */}
+          <div className="space-y-6">
+            <div className="bg-white/40 backdrop-blur-md rounded-[2.5rem] p-5 md:p-6 border border-white/50 shadow-sm">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 px-1 gap-4">
+                <div className="flex items-center gap-4">
+                  <h3 className="text-[10px] font-black text-slate-800 flex items-center gap-2 uppercase tracking-[0.2em]">
+                    <BookOpen size={14} className="text-rose-400" />
+                    Story Library
+                  </h3>
+                  <div className="h-4 w-px bg-slate-200 hidden sm:block" />
+                  <React.Suspense fallback={null}>
+                    <JourneyStoryteller config={config} userRole={userRole} />
+                  </React.Suspense>
+                </div>
+                <span className="text-[8px] font-bold text-rose-300 uppercase tracking-[0.2em]">{stories.length} stories / together</span>
               </div>
-              <div className="flex gap-4 overflow-x-auto pb-4 px-2 custom-scrollbar no-scrollbar scroll-smooth">
-                {stories.map((story) => (
-                  <button
-                    key={story.id}
-                    onClick={() => setSelectedStory(story)}
-                    className="flex-shrink-0 w-32 h-44 bg-white/60 rounded-3xl border border-white/50 p-4 flex flex-col items-start justify-end group hover:bg-white hover:border-rose-100 transition-all hover:-translate-y-1 shadow-sm relative overflow-hidden"
-                  >
-                    <div className="absolute top-4 left-4 w-8 h-8 bg-rose-50 rounded-xl flex items-center justify-center text-rose-400 group-hover:scale-110 transition-transform">
-                      <Heart size={14} fill="currentColor" />
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black text-gray-800 leading-tight mb-1">Vol. {story.id.slice(0, 4)}</p>
-                      <p className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter">{formatDate(story.created_at)}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
+
+              {stories.length > 0 ? (
+                <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar scroll-smooth">
+                  {stories.map((story) => (
+                    <button
+                      key={story.id}
+                      onClick={() => setSelectedStory(story)}
+                      className="flex-shrink-0 w-24 h-32 bg-white/60 rounded-2xl border border-white/50 p-3 flex flex-col items-start justify-end group hover:bg-white hover:border-rose-100 hover:shadow-md transition-all hover:-translate-y-1 relative overflow-hidden"
+                    >
+                      <div className="absolute top-2 right-2 text-rose-200/50 group-hover:text-rose-300 transition-colors">
+                        <Heart size={24} fill="currentColor" />
+                      </div>
+                      <div className="relative z-10">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-tighter mb-0.5">{formatDate(story.created_at)}</p>
+                        <p className="text-[10px] font-black text-slate-800 leading-tight">Vol. {story.id.slice(0, 4)}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-8 text-center border-2 border-dashed border-white/50 rounded-2xl">
+                  <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest italic">Hãy tạo câu chuyện đầu tiên cho hành trình của hai bạn ✨</p>
+                </div>
+              )}
             </div>
-          )}
-          
-          <JourneyStoryteller config={config} userRole={userRole} />
+          </div>
         </div>
       )}
 
-      {/* Main Timeline HUD */}
-      <div className="relative space-y-12 md:space-y-16 min-h-[400px]">
-        {/* Modern Vertical Line */}
-        <div className="absolute left-6 md:left-8 top-0 bottom-0 w-1 bg-gradient-to-b from-rose-100 via-blue-50 to-transparent rounded-full" />
-
-        <AnimatePresence mode="popLayout">
-          {loading ? (
-            <TimelineSkeleton />
-          ) : events.length > 0 ? (
-            events.map((event, index) => (
-              <EventItem key={event.id} event={event} index={index} onClick={setSelectedEvent} />
-            ))
-          ) : (
-            <div className="ml-16 mr-4 text-center py-24 bg-white/40 rounded-[2.5rem] border-2 border-dashed border-gray-100">
-              <p className="text-gray-400 font-bold px-8">Hãy bắt đầu viết nên câu chuyện của chúng mình... ✨</p>
-            </div>
-          )}
-        </AnimatePresence>
+      {/* Minimalist Vertical Line */}
+      <div className="relative min-h-[400px]">
+        <div className="absolute left-6 md:left-8 top-4 bottom-0 w-[2px] bg-gradient-to-b from-rose-200 via-slate-100 to-transparent rounded-full opacity-60" />
+        
+        <div className="space-y-8 md:space-y-12">
+          <AnimatePresence mode="popLayout">
+            {loading ? (
+              <TimelineSkeleton />
+            ) : events.length > 0 ? (
+              events.map((event, index) => (
+                <EventItem key={event.id} event={event} index={index} onClick={setSelectedEvent} />
+              ))
+            ) : (
+              <div className="ml-16 mr-4 text-center py-20 bg-white/30 rounded-[2.5rem] border border-white/50 border-dashed">
+                <p className="text-slate-400 font-medium px-8 text-sm italic">Hãy bắt đầu viết nên câu chuyện của chúng mình... ✨</p>
+              </div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       {/* Sweet Footer */}
@@ -705,10 +796,12 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Địa điểm</label>
-            <LocationPicker 
-              value={uploadForm.location}
-              onChange={(loc) => setUploadForm({ ...uploadForm, location: loc })}
-            />
+            <React.Suspense fallback={<div className="h-12 bg-gray-50/50 rounded-2xl animate-pulse" />}>
+              <LocationPicker 
+                value={uploadForm.location}
+                onChange={(loc) => setUploadForm({ ...uploadForm, location: loc })}
+              />
+            </React.Suspense>
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Hình ảnh</label>

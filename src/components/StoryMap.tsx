@@ -9,6 +9,7 @@ import { getOptimizedImageUrl } from '../lib/imageUtils';
 import { supabase } from '../lib/supabase';
 import { usePresence } from '../lib/PresenceContext';
 import { showNotification } from '../lib/notifications';
+import { reverseGeocode } from '../lib/geocoding';
 
 type Event = Database['public']['Tables']['events']['Row'];
 
@@ -28,8 +29,65 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
+// Smooth Marker with interpolation
+const SmoothMarker = ({ position, icon, children }: { 
+  position: [number, number], 
+  icon: L.DivIcon | L.Icon, 
+  children?: React.ReactNode 
+}) => {
+  const markerRef = React.useRef<L.Marker | null>(null);
+  const targetPosRef = React.useRef(position);
+  const currentPosRef = React.useRef(position);
+  const requestRef = React.useRef<number | undefined>(undefined);
+
+  React.useEffect(() => {
+    targetPosRef.current = position;
+    
+    const animate = () => {
+      const [curLat, curLng] = currentPosRef.current;
+      const [tarLat, tarLng] = targetPosRef.current;
+      
+      const dfLat = tarLat - curLat;
+      const dfLng = tarLng - curLng;
+      const factor = 0.04; // Animation speed
+      
+      if (Math.abs(dfLat) < 0.0000001 && Math.abs(dfLng) < 0.0000001) {
+        if (markerRef.current) markerRef.current.setLatLng(targetPosRef.current);
+        currentPosRef.current = targetPosRef.current;
+        requestRef.current = undefined;
+        return;
+      }
+      
+      const nextPos: [number, number] = [
+        curLat + dfLat * factor,
+        curLng + dfLng * factor
+      ];
+      
+      if (markerRef.current) {
+        markerRef.current.setLatLng(nextPos);
+      }
+      currentPosRef.current = nextPos;
+      requestRef.current = requestAnimationFrame(animate);
+    };
+
+    if (!requestRef.current) {
+      requestRef.current = requestAnimationFrame(animate);
+    }
+  }, [position]);
+
+  return (
+    <Marker 
+      position={currentPosRef.current} 
+      icon={icon}
+      ref={(ref) => { markerRef.current = ref; }}
+    >
+      {children}
+    </Marker>
+  );
+};
+
 // Custom marker with image
-const CustomMarker = ({ position, imageUrl, isOffline, label, color = 'rose' }: { 
+const CustomMarker = React.memo(({ position, imageUrl, isOffline, label, color = 'rose' }: { 
   position: [number, number], 
   imageUrl: string, 
   isOffline?: boolean, 
@@ -45,24 +103,47 @@ const CustomMarker = ({ position, imageUrl, isOffline, label, color = 'rose' }: 
   const icon = useMemo(() => divIcon({
     className: 'custom-div-icon',
     html: `
-      <div class="relative group" style="transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1); will-change: transform;">
-        <div class="w-12 h-12 rounded-2xl overflow-hidden border-4 ${borderColor} shadow-2xl relative z-10 bg-white">
-          <img src="${imageUrl}" class="w-full h-full object-cover" />
-          ${!isOffline ? '<div class="absolute top-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full animate-pulse"></div>' : ''}
-        </div>
-        <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 ${arrowColor} rotate-45 shadow-lg"></div>
+      <div class="relative group animate-marker-breath" style="will-change: transform;">
+        <svg width="48" height="60" viewBox="0 0 48 60" class="relative z-10 drop-shadow-2xl">
+          <defs>
+            <clipPath id="avatarClip">
+              <rect x="4" y="4" width="40" height="40" rx="12" />
+            </clipPath>
+          </defs>
+          <!-- Outer Border / Shadow -->
+          <rect x="2" y="2" width="44" height="44" rx="14" fill="white" />
+          <rect x="2" y="2" width="44" height="44" rx="14" fill="none" stroke="${color === 'rose' ? '#fb7185' : '#60a5fa'}" stroke-width="4" class="${isOffline ? 'grayscale' : ''}" />
+          
+          <!-- Pin Tip -->
+          <path d="M24 60 L18 46 L30 46 Z" fill="${color === 'rose' ? '#fb7185' : '#60a5fa'}" class="${isOffline ? 'grayscale' : ''}" />
+          
+          <!-- Avatar -->
+          <image 
+            href="${imageUrl}" 
+            x="4" y="4" width="40" height="40" 
+            clip-path="url(#avatarClip)"
+            preserveAspectRatio="xMidYMid slice"
+            class="${isOffline ? 'grayscale' : ''}"
+          />
+          
+          ${!isOffline ? `
+            <circle cx="40" cy="8" r="5" fill="white" />
+            <circle cx="40" cy="8" r="3" fill="#22c55e" class="animate-pulse" />
+          ` : ''}
+        </svg>
+
         ${!isOffline ? `
-          <div class="absolute inset-x-0 inset-y-0 rounded-2xl ${pingColor} animate-ping"></div>
-          <div class="absolute -inset-2 rounded-2xl border-2 ${pulseBorder} animate-pulse"></div>
+          <div class="absolute top-0 left-0 w-12 h-12 rounded-2xl ${pingColor} animate-ping -z-10"></div>
+          <div class="absolute -inset-2 rounded-2xl border-2 ${pulseBorder} animate-marker-pulse -z-10"></div>
         ` : ''}
       </div>
     `,
-    iconSize: [48, 48],
-    iconAnchor: [24, 48],
+    iconSize: [48, 60],
+    iconAnchor: [24, 60],
   }), [imageUrl, isOffline, color]);
 
   return (
-    <Marker position={position} icon={icon}>
+    <SmoothMarker position={position} icon={icon}>
       <Popup className="custom-popup">
         <div className="text-center p-1">
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">{isOffline ? 'Offline' : 'Online'}</p>
@@ -74,9 +155,72 @@ const CustomMarker = ({ position, imageUrl, isOffline, label, color = 'rose' }: 
           {label}
         </span>
       </Tooltip>
+    </SmoothMarker>
+  );
+});
+
+// Memory Marker component for mapping events
+const MemoryMarker = React.memo(({ item, onSelect }: { item: Event, onSelect: (item: Event, pos: [number, number]) => void }) => {
+  const pos = useMemo(() => [Number(item.location!.lat), Number(item.location!.lng)] as [number, number], [item.location]);
+  
+  const icon = useMemo(() => L.divIcon({
+    className: 'memory-marker',
+    html: `
+      <svg width="40" height="40" viewBox="0 0 40 40" class="group transition-transform active:scale-95">
+        <defs>
+          <clipPath id="circleView">
+            <rect x="4" y="4" width="32" height="32" rx="10" />
+          </clipPath>
+          <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+            <feOffset dx="0" dy="2" result="offsetblur"/>
+            <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
+            <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <path d="M20 40 L16 34 L24 34 Z" fill="white" />
+        <rect x="2" y="2" width="36" height="36" rx="12" fill="white" filter="url(#shadow)" />
+        <image 
+          href="${getOptimizedImageUrl(item.photo_url, 100)}" 
+          x="4" y="4" width="32" height="32" 
+          clip-path="url(#circleView)"
+          preserveAspectRatio="xMidYMid slice"
+        />
+      </svg>
+    `,
+    iconSize: [40, 40],
+    iconAnchor: [20, 40]
+  }), [item.photo_url]);
+
+  if (!isValidCoords(pos)) return null;
+
+  return (
+    <Marker 
+      position={pos}
+      icon={icon}
+      eventHandlers={{
+        click: () => onSelect(item, pos)
+      }}
+    >
+      <Popup className="custom-popup">
+        <div className="w-48 overflow-hidden rounded-2xl">
+          <img 
+            src={getOptimizedImageUrl(item.photo_url, 400)} 
+            alt={item.title}
+            className="w-full h-32 object-cover"
+          />
+          <div className="p-3">
+            <p className="text-[8px] font-black text-rose-400 uppercase tracking-widest leading-none mb-1">
+              {new Date(item.date).toLocaleDateString('vi-VN')}
+            </p>
+            <h4 className="text-xs font-black text-gray-800 line-clamp-1 mb-1 uppercase tracking-tight">{item.title}</h4>
+            <p className="text-[10px] text-gray-500 line-clamp-2 leading-tight">{(item.location as any)?.address_name || item.description}</p>
+          </div>
+        </div>
+      </Popup>
     </Marker>
   );
-};
+});
 
 interface StoryMapProps {
   events: Event[];
@@ -129,11 +273,14 @@ const FitBoundsComponent = ({
   const map = useMap();
   const lastKeyRef = React.useRef(0);
 
-  React.useEffect(() => {
-    const points: [number, number][] = [];
-    if (userLoc && isValidCoords(userLoc)) points.push(userLoc);
-    if (otherLoc && isValidCoords(otherLoc)) points.push(otherLoc);
+  const points = useMemo(() => {
+    const pts: [number, number][] = [];
+    if (userLoc && isValidCoords(userLoc)) pts.push(userLoc);
+    if (otherLoc && isValidCoords(otherLoc)) pts.push(otherLoc);
+    return pts;
+  }, [userLoc, otherLoc]);
 
+  React.useEffect(() => {
     if (points.length === 0) return;
 
     // Trigger on initial load (points exist) or when refocus button clicked
@@ -141,13 +288,21 @@ const FitBoundsComponent = ({
       lastKeyRef.current = refocusKey;
       
       if (points.length === 1) {
-        map.flyTo(points[0], 16, { duration: 1.5 });
+        map.flyTo(points[0], 16, { 
+          duration: 2,
+          easeLinearity: 0.1
+        });
       } else {
         const bounds = L.latLngBounds(points);
-        map.fitBounds(bounds, { padding: [70, 70], maxZoom: 16, duration: 1.5 });
+        map.fitBounds(bounds, { 
+          padding: [70, 70], 
+          maxZoom: 16, 
+          duration: 2,
+          easeLinearity: 0.1
+        });
       }
     }
-  }, [refocusKey, userLoc, otherLoc, map]);
+  }, [refocusKey, points, map]);
 
   return null;
 };
@@ -159,8 +314,8 @@ const FlyToController = ({ target }: { target: [number, number] | null }) => {
     if (target && isValidCoords(target)) {
       try {
         map.flyTo(target, 17, {
-          duration: 2,
-          easeLinearity: 0.25
+          duration: 1.5,
+          easeLinearity: 0.1
         });
       } catch (e) {
         console.error("FlyTo error:", e);
@@ -223,7 +378,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   }, [otherLastUpdate, isOtherPresenceOnline]);
 
   const distance = useMemo(() => {
-    if (!userLocation || !otherLocation) return null;
+    if (!userLocation || !otherLocation || !isValidCoords(userLocation) || !isValidCoords(otherLocation)) return null;
     const [lat1, lon1] = userLocation;
     const [lat2, lon2] = otherLocation;
     const R = 6371; // km
@@ -240,41 +395,26 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
 
   // Update other address when location changes
   React.useEffect(() => {
-    if (otherLocation) {
+    if (otherLocation && isValidCoords(otherLocation)) {
       getAddress(otherLocation[0], otherLocation[1], setOtherAddress);
     }
   }, [otherLocation]);
 
   // ... (keeping other helper functions like getAddress)
 
-  // Helper: Reverse Geocode with simplified logic and rate limit protection
-  const fetchingRef = React.useRef<{ [key: string]: boolean }>({});
+  // Helper: Geocode with wrapper and rate limit protection
+  const lastFetchedPosRef = React.useRef<string>('');
   const getAddress = async (lat: number, lng: number, setter: (addr: string) => void) => {
     if (!lat || !lng) return;
     const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
-    if (fetchingRef.current[key]) return;
+    if (lastFetchedPosRef.current === key) return;
     
     try {
-      fetchingRef.current[key] = true;
-      // Small delay to avoid hitting OpenStreetMap too fast
-      await new Promise(r => setTimeout(r, 1500));
-      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
-      if (!res.ok) {
-        if (res.status === 429) {
-          console.warn("Nominatim rate limited");
-          return;
-        }
-        throw new Error("API error");
-      }
-      const data = await res.json();
-      if (data && data.address) {
-        const addr = data.address.road || data.address.suburb || data.address.city || data.address.state || data.display_name.split(',')[0];
-        setter(addr);
-      }
+      lastFetchedPosRef.current = key;
+      const addr = await reverseGeocode(lat, lng);
+      setter(addr);
     } catch (e) {
-      console.error("Geocoding failed", e);
-    } finally {
-      fetchingRef.current[key] = false;
+      setter(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
     }
   };
 
@@ -326,7 +466,10 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   React.useEffect(() => {
     if (!userId || !supabase) return;
 
-    // 1. Setup Realtime Listener for locations
+    // 1. Setup Realtime Listener for locations with local throttle
+    let throttleTimeout: any = null;
+    let pendingUpdate: any = null;
+
     const channel = supabase
       .channel('location-updates')
       .on(
@@ -335,20 +478,33 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
         (payload: any) => {
           const newLoc = payload.new;
           if (!newLoc) return;
-          
-          // Cast values to Number explicitly
-          const coords: [number, number] = [Number(newLoc.lat), Number(newLoc.lng)];
-          if (!isValidCoords(coords)) return;
-          
-          if (newLoc.user_id === userId) {
-            setUserLocation(coords);
-            getAddress(coords[0], coords[1], setUserAddress);
-            // Cache locally for instant load next time
-            localStorage.setItem(`last_loc_${userId}`, JSON.stringify(coords));
+
+          const applyUpdate = (loc: any) => {
+            const coords: [number, number] = [Number(loc.lat), Number(loc.lng)];
+            if (!isValidCoords(coords)) return;
+            
+            if (loc.user_id === userId) {
+              setUserLocation(coords);
+              getAddress(coords[0], coords[1], setUserAddress);
+              localStorage.setItem(`last_loc_${userId}`, JSON.stringify(coords));
+            } else {
+              setDbOtherLocation(coords);
+              setOtherLastUpdate(loc.updated_at);
+              localStorage.setItem(`last_loc_other`, JSON.stringify({ coords, updated_at: loc.updated_at, user_id: loc.user_id }));
+            }
+          };
+
+          if (!throttleTimeout) {
+            applyUpdate(newLoc);
+            throttleTimeout = setTimeout(() => {
+              throttleTimeout = null;
+              if (pendingUpdate) {
+                applyUpdate(pendingUpdate);
+                pendingUpdate = null;
+              }
+            }, 500); // 500ms throttle
           } else {
-            setDbOtherLocation(coords);
-            setOtherLastUpdate(newLoc.updated_at);
-            localStorage.setItem(`last_loc_other`, JSON.stringify({ coords, updated_at: newLoc.updated_at, user_id: newLoc.user_id }));
+            pendingUpdate = newLoc;
           }
         }
       )
@@ -369,11 +525,13 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           .eq('user_id', userId)
           .maybeSingle();
         
-        if (myData) {
+    if (myData) {
           const coords: [number, number] = [Number(myData.lat), Number(myData.lng)];
-          setUserLocation(coords);
-          getAddress(coords[0], coords[1], setUserAddress);
-          localStorage.setItem(`last_loc_${userId}`, JSON.stringify(coords));
+          if (isValidCoords(coords)) {
+            setUserLocation(coords);
+            getAddress(coords[0], coords[1], setUserAddress);
+            localStorage.setItem(`last_loc_${userId}`, JSON.stringify(coords));
+          }
         }
 
         // Fetch OTHER person location from DB
@@ -390,21 +548,23 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
 
         if (others && others.length > 0) {
           const coords: [number, number] = [Number(others[0].lat), Number(others[0].lng)];
-          console.log("Found other location:", coords);
-          setDbOtherLocation(coords);
-          setOtherLastUpdate(others[0].updated_at || '');
-          localStorage.setItem(`last_loc_other`, JSON.stringify({ coords, updated_at: others[0].updated_at, user_id: others[0].user_id }));
+          if (isValidCoords(coords)) {
+            console.log("Found other location:", coords);
+            setDbOtherLocation(coords);
+            setOtherLastUpdate(others[0].updated_at || '');
+            localStorage.setItem(`last_loc_other`, JSON.stringify({ coords, updated_at: others[0].updated_at, user_id: others[0].user_id }));
 
-          // Fetch profile if not already set or changed
-          if (!otherProfile || otherProfile.id !== others[0].user_id) {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('avatar_url')
-              .eq('user_id', others[0].user_id)
-              .maybeSingle();
-            
-            if (profile) {
-              setOtherProfile({ avatar_url: profile.avatar_url, id: others[0].user_id });
+            // Fetch profile if not already set or changed
+            if (!otherProfile || otherProfile.id !== others[0].user_id) {
+              const { data: profile } = await supabase
+                .from('profiles')
+                .select('avatar_url')
+                .eq('user_id', others[0].user_id)
+                .maybeSingle();
+              
+              if (profile) {
+                setOtherProfile({ avatar_url: profile.avatar_url, id: others[0].user_id });
+              }
             }
           }
         } else {
@@ -443,7 +603,8 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
     return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   };
 
-  const handleSelectFromList = (item: Event) => {
+  // Optimized Select Handlers
+  const handleSelectFromList = React.useCallback((item: Event) => {
     if (!item.location) return;
     const lat = Number(item.location.lat);
     const lng = Number(item.location.lng);
@@ -452,12 +613,12 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
       setSelectedItem(item);
       if (window.innerWidth < 768) setShowList(false);
     }
-  };
+  }, []);
 
-  const handleSelectLiveLocation = (coords: [number, number], label: string) => {
+  const handleSelectLiveLocation = React.useCallback((coords: [number, number], label: string) => {
     setFlyToCoords(coords);
     if (window.innerWidth < 768) setShowList(false);
-  };
+  }, []);
 
   return (
     <div className={`relative transition-all duration-500 overflow-hidden flex flex-col md:flex-row ${isFullscreen ? 'fixed inset-0 z-[1500] h-[100dvh] w-screen bg-white' : 'h-[600px] md:h-[700px] rounded-[3rem] shadow-2xl border border-white/50 bg-white/40 backdrop-blur-xl'}`}>
@@ -627,6 +788,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           zoom={13}
           style={{ height: '100%', width: '100%', zIndex: 0 }}
           zoomControl={false}
+          preferCanvas={true}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -641,57 +803,20 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
             chunkedLoading
             maxClusterRadius={50}
           >
-            {mapItems.map((item) => {
-              const pos: [number, number] = [Number(item.location!.lat), Number(item.location!.lng)];
-              if (!isValidCoords(pos)) return null;
-              
-              return (
-                <Marker 
-                  key={item.id} 
-                  position={pos}
-                  icon={L.divIcon({
-                    className: 'memory-marker',
-                    html: `
-                      <div class="relative w-10 h-10 group">
-                        <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 bg-white rotate-45 border-r border-b border-gray-100"></div>
-                        <div class="w-full h-full rounded-2xl border-4 border-white shadow-lg overflow-hidden group-hover:scale-110 transition-transform bg-rose-50">
-                          <img src="${getOptimizedImageUrl(item.photo_url, 100)}" class="w-full h-full object-cover" />
-                        </div>
-                      </div>
-                    `,
-                    iconSize: [40, 40],
-                    iconAnchor: [20, 40]
-                  })}
-                  eventHandlers={{
-                    click: () => {
-                      setSelectedItem(item);
-                      setFlyToCoords(pos);
-                    }
-                  }}
-                >
-                  <Popup className="custom-popup">
-                    <div className="w-48 overflow-hidden rounded-2xl">
-                      <img 
-                        src={getOptimizedImageUrl(item.photo_url, 400)} 
-                        alt={item.title}
-                        className="w-full h-32 object-cover"
-                      />
-                      <div className="p-3">
-                        <p className="text-[8px] font-black text-rose-400 uppercase tracking-widest leading-none mb-1">
-                          {new Date(item.date).toLocaleDateString('vi-VN')}
-                        </p>
-                        <h4 className="text-xs font-black text-gray-800 line-clamp-1 mb-1 uppercase tracking-tight">{item.title}</h4>
-                        <p className="text-[10px] text-gray-500 line-clamp-2 leading-tight">{(item.location as any)?.address_name || item.description}</p>
-                      </div>
-                    </div>
-                  </Popup>
-                </Marker>
-              );
-            })}
+            {mapItems.map((item) => (
+              <MemoryMarker 
+                key={item.id} 
+                item={item} 
+                onSelect={(selected, pos) => {
+                  setSelectedItem(selected);
+                  setFlyToCoords(pos);
+                }}
+              />
+            ))}
           </MarkerClusterGroup>
 
           {/* Line connecting the two users */}
-          {userLocation && otherLocation && isOtherOnline && (
+          {userLocation && otherLocation && isOtherOnline && isValidCoords(userLocation) && isValidCoords(otherLocation) && (
             <Polyline 
               positions={[userLocation, otherLocation]}
               pathOptions={{ 

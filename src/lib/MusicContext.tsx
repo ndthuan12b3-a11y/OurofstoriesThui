@@ -13,8 +13,6 @@ interface MusicContextType {
   isPlaying: boolean;
   isRepeat: boolean;
   isUnlocked: boolean;
-  currentTime: number;
-  duration: number;
   volume: number;
   togglePlay: () => void;
   playNext: () => void;
@@ -25,7 +23,13 @@ interface MusicContextType {
   audioRef: React.RefObject<HTMLAudioElement>;
 }
 
+interface MusicProgressContextType {
+  currentTime: number;
+  duration: number;
+}
+
 const MusicContext = createContext<MusicContextType | undefined>(undefined);
+const MusicProgressContext = createContext<MusicProgressContextType | undefined>(undefined);
 
 export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [playlist, setPlaylist] = useState<Track[]>([]);
@@ -114,7 +118,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               console.error("Unlock error:", error);
               // Nếu lỗi khác (ví dụ: mạng), vẫn thử gán lại listener để người dùng click lại
               window.addEventListener('click', unlockAudio);
-              window.addEventListener('touchstart', unlockAudio);
+              window.addEventListener('touchstart', unlockAudio, { passive: true });
             } else {
               setIsUnlocked(true);
             }
@@ -124,7 +128,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     window.addEventListener('click', unlockAudio);
-    window.addEventListener('touchstart', unlockAudio);
+    window.addEventListener('touchstart', unlockAudio, { passive: true });
 
     return () => {
       window.removeEventListener('click', unlockAudio);
@@ -176,20 +180,26 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const setVolume = (v: number) => setVolumeState(v);
 
+  const musicState = React.useMemo(() => ({
+    playlist, currentTrack, isPlaying, isRepeat, isUnlocked, volume,
+    togglePlay, playNext, playPrev, toggleRepeat, seekTo, setVolume, audioRef
+  }), [playlist, currentTrack, isPlaying, isRepeat, isUnlocked, volume]);
+
+  const musicProgress = React.useMemo(() => ({
+    currentTime, duration
+  }), [currentTime, duration]);
+
   return (
-    <MusicContext.Provider value={{ 
-      playlist, currentTrack, isPlaying, isRepeat, isUnlocked, 
-      currentTime, duration, volume,
-      togglePlay, playNext, playPrev, toggleRepeat, seekTo, setVolume,
-      audioRef 
-    }}>
-      {children}
-      <audio 
-        ref={audioRef} 
-        src={currentTrack?.music_url}
-        onEnded={() => isRepeat ? audioRef.current?.play() : playNext()} 
-        preload="auto"
-      />
+    <MusicContext.Provider value={musicState}>
+      <MusicProgressContext.Provider value={musicProgress}>
+        {children}
+        <audio 
+          ref={audioRef} 
+          src={currentTrack?.music_url}
+          onEnded={() => isRepeat ? audioRef.current?.play() : playNext()} 
+          preload="auto"
+        />
+      </MusicProgressContext.Provider>
     </MusicContext.Provider>
   );
 };
@@ -197,5 +207,11 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 export const useMusic = () => {
   const context = useContext(MusicContext);
   if (!context) throw new Error('useMusic must be used within a MusicProvider');
+  return context;
+};
+
+export const useMusicProgress = () => {
+  const context = useContext(MusicProgressContext);
+  if (!context) throw new Error('useMusicProgress must be used within a MusicProvider');
   return context;
 };

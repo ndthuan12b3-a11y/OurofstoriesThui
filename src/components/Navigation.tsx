@@ -78,45 +78,78 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab,
             <div className="h-4 w-px bg-gray-200 hidden sm:block mx-1" />
             <div className="relative flex items-center gap-2">
               <div className={cn(
-                "w-2.5 h-2.5 rounded-full",
-                isOtherOnline ? "bg-rose-500 animate-pulse" : "bg-gray-300"
+                "w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.5)]",
+                isOtherOnline ? "bg-green-500 animate-pulse" : "bg-gray-300"
               )} />
               <span className="text-[10px] font-black uppercase tracking-widest text-gray-700 hidden sm:block">
                 {isOtherOnline ? "Người ấy đang online ❤️" : "Người ấy đang offline"}
               </span>
-              <Users size={14} className={cn("sm:hidden", isOtherOnline ? "text-rose-500" : "text-gray-400")} />
+              <Users size={14} className={cn("sm:hidden", isOtherOnline ? "text-green-500" : "text-gray-400")} />
             </div>
           </div>
 
-          {/* Music Hub */}
-          <div 
-            className="flex-grow max-w-xs bg-white/70 backdrop-blur-xl border border-white/50 px-4 py-2 rounded-full shadow-lg flex items-center gap-3 overflow-hidden group cursor-pointer"
-            onClick={() => setShowMusicControls(!showMusicControls)}
+          {/* Music Hub - Compact & Expandable */}
+          <motion.div 
+            layout
+            initial={false}
+            animate={{ width: showMusicControls ? "auto" : "48px" }}
+            className={cn(
+              "bg-white/80 backdrop-blur-xl border border-white/50 rounded-full shadow-lg flex items-center overflow-hidden cursor-pointer h-12",
+              showMusicControls ? "px-4 gap-3 pr-2" : "justify-center"
+            )}
+            onClick={() => !showMusicControls && setShowMusicControls(true)}
           >
-            <div className={cn("w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary", isPlaying && "animate-spin-slow")}>
+            <motion.div 
+              layout
+              className={cn(
+                "w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0",
+                isPlaying && "animate-spin-slow"
+              )}
+              onClick={(e) => {
+                if (showMusicControls) {
+                  e.stopPropagation();
+                  setShowMusicControls(false);
+                }
+              }}
+            >
               <Music2 size={16} />
-            </div>
-            <div className="flex-grow min-w-0">
-              <p className="text-[10px] font-black uppercase tracking-tighter text-gray-400 leading-none mb-0.5">Now Playing</p>
-              <p className="text-[11px] font-bold text-gray-800 truncate leading-none">
-                {currentTrack?.title || "No track selected"}
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              <button 
-                onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-                className="p-1.5 hover:bg-primary/20 rounded-full transition-colors text-primary"
-              >
-                {isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
-              </button>
-              <button 
-                onClick={(e) => { e.stopPropagation(); playNext(); }}
-                className="p-1.5 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hidden sm:block"
-              >
-                <SkipForward size={14} fill="currentColor" />
-              </button>
-            </div>
-          </div>
+            </motion.div>
+
+            <AnimatePresence>
+              {showMusicControls && (
+                <motion.div
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  className="flex items-center gap-3 overflow-hidden whitespace-nowrap"
+                >
+                  <div className="flex-grow min-w-0 max-w-[120px]">
+                    <p className="text-[9px] font-black uppercase tracking-tighter text-gray-400 leading-none mb-0.5">Now Playing</p>
+                    <p className="text-[11px] font-bold text-gray-800 truncate leading-none">
+                      {currentTrack?.title || "No track selected"}
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-1 border-l border-gray-100 pl-2">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+                      className="p-2 hover:bg-primary/20 rounded-full transition-colors text-primary"
+                      title={isPlaying ? "Dừng nhạc" : "Phát nhạc"}
+                    >
+                      {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); playNext(); }}
+                      className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400"
+                      title="Chuyển bài"
+                    >
+                      <SkipForward size={16} fill="currentColor" />
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
         </div>
       </div>
 

@@ -31,11 +31,14 @@ export const JourneyStoryteller: React.FC<JourneyStorytellerProps> = ({ config, 
     const fetchLastStory = async () => {
       const { data } = await supabase
         .from('stories')
-        .select('created_at')
+        .select('created_at, content')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (data) setLastStoryDate(data.created_at);
+      if (data) {
+        setLastStoryDate(data.created_at);
+        setStory(data.content);
+      }
     };
     fetchLastStory();
   }, []);
@@ -114,14 +117,13 @@ export const JourneyStoryteller: React.FC<JourneyStorytellerProps> = ({ config, 
         5. Độ dài khoảng 400-600 từ.
       `;
 
-      const response = await ai.models.generateContent({
+      const result = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: {
-          parts: [{ text: prompt }]
-        },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
       });
 
-      const generatedContent = response.text || "Không thể tạo câu chuyện lúc này.";
+      const generatedContent = result.text;
+      if (!generatedContent) throw new Error("No response from AI");
       
       // Save to Supabase
       const { error: saveError } = await supabase
@@ -138,50 +140,45 @@ export const JourneyStoryteller: React.FC<JourneyStorytellerProps> = ({ config, 
 
       setStory(generatedContent);
       setIsOpen(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Error:", error);
-      showNotification("Lỗi khi kết nối với Trợ lý AI!", true);
+      if (error?.message?.includes('429') || error?.status === 429) {
+        showNotification("Hệ thống AI đang quá tải, vui lòng thử lại sau ít phút!", true);
+      } else {
+        showNotification("Lỗi khi kết nối với Trợ lý AI!", true);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="mt-8 mb-12">
-      <div className="bg-white/80 backdrop-blur-md rounded-[2.5rem] p-8 shadow-xl border border-rose-50 relative overflow-hidden group">
-        {/* Decorative elements */}
-        <div className="absolute -right-10 -top-10 w-40 h-40 bg-rose-100/30 rounded-full blur-3xl group-hover:bg-rose-200/40 transition-colors" />
-        <div className="absolute -left-10 -bottom-10 w-40 h-40 bg-blue-100/30 rounded-full blur-3xl group-hover:bg-blue-200/40 transition-colors" />
-        
-        <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
-          <div className="w-20 h-20 bg-gradient-to-br from-rose-400 to-rose-300 rounded-3xl flex items-center justify-center text-white shadow-lg rotate-3 group-hover:rotate-0 transition-transform">
-            <BookOpen size={40} />
-          </div>
-          
-          <div className="flex-grow text-center md:text-left">
-            <h2 className="text-2xl font-black text-gray-800 mb-2 flex items-center justify-center md:justify-start gap-2">
-              AI Journey Storyteller
-              <Sparkles className="text-yellow-400 animate-pulse" size={20} />
-            </h2>
-            <p className="text-gray-500 leading-relaxed">
-              Hãy để AI dệt nên câu chuyện tình yêu của hai bạn dựa trên những kỷ niệm đã lưu giữ. 
-              Một bản tóm tắt hành trình đầy cảm xúc đang chờ đợi...
-            </p>
-          </div>
-          
+    <>
+      <div className="flex items-center gap-2">
+        {story && (
           <button
-            onClick={generateStory}
-            disabled={loading}
-            className="px-8 py-4 bg-primary text-white rounded-2xl font-bold soft-shadow hover:scale-105 active:scale-95 transition-all flex items-center gap-3 disabled:opacity-50 disabled:hover:scale-100"
+            onClick={() => setIsOpen(true)}
+            className="px-3 py-1.5 bg-white/80 backdrop-blur-sm text-stone-700 border border-stone-200 rounded-xl text-[10px] font-black uppercase tracking-widest soft-shadow hover:bg-white transition-all flex items-center gap-2"
           >
-            {loading ? (
-              <RefreshCw className="animate-spin" size={20} />
-            ) : (
-              <Wand2 size={20} />
-            )}
-            {loading ? "Đang dệt truyện..." : "Tạo Câu Chuyện"}
+            <BookOpen size={12} />
+            Đọc Truyện
           </button>
-        </div>
+        )}
+        <button
+          onClick={generateStory}
+          disabled={loading}
+          className={cn(
+            "px-3 py-1.5 bg-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest soft-shadow hover:scale-105 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50 disabled:hover:scale-100",
+            story && "bg-rose-300"
+          )}
+        >
+          {loading ? (
+            <RefreshCw className="animate-spin" size={12} />
+          ) : (
+            <Wand2 size={12} />
+          )}
+          {loading ? "Đang viết..." : story ? "Viết Lại" : "Tạo Truyện"}
+        </button>
       </div>
 
       <AnimatePresence>
@@ -263,6 +260,6 @@ export const JourneyStoryteller: React.FC<JourneyStorytellerProps> = ({ config, 
           </div>
         )}
       </AnimatePresence>
-    </div>
+    </>
   );
 };

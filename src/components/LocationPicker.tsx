@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-lea
 import { Icon, LeafletMouseEvent } from 'leaflet';
 import { Search, MapPin, X, Navigation } from 'lucide-react';
 import { showNotification } from '../lib/notifications';
+import { reverseGeocode, searchGeocode } from '../lib/geocoding';
 
 // Fix for default Leaflet icon inclusion
 const defaultIcon = new Icon({
@@ -37,24 +38,21 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [mapCenter, setMapCenter] = useState<[number, number]>(
-    value ? [value.lat, value.lng] : [10.762622, 106.660172] // Default to Saigon
-  );
+  const [mapCenter, setMapCenter] = useState<[number, number]>(() => {
+    if (value && !isNaN(Number(value.lat)) && !isNaN(Number(value.lng))) {
+      return [Number(value.lat), Number(value.lng)];
+    }
+    return [10.762622, 106.660172]; // Default to Saigon
+  });
 
   const MapEvents = () => {
     useMapEvents({
       click(e: LeafletMouseEvent) {
         const { lat, lng } = e.latlng;
-        // Reverse geocode to get address name
-        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
-          .then(res => res.json())
-          .then(data => {
-            const address = data.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+        // Reverse geocode with wrapper
+        reverseGeocode(lat, lng)
+          .then(address => {
             onChange({ lat, lng, address_name: address });
-            setMapCenter([lat, lng]);
-          })
-          .catch(() => {
-            onChange({ lat, lng, address_name: `${lat.toFixed(4)}, ${lng.toFixed(4)}` });
             setMapCenter([lat, lng]);
           });
       },
@@ -69,30 +67,22 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
     }
   }, []);
 
-  const handleSearch = async () => {
+  const handleSearch = React.useCallback(async () => {
     if (!searchQuery.trim()) return;
     setIsSearching(true);
     try {
-      let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=10`;
-      
-      // Bias search results toward map center
-      const bias = 1.0; 
-      const viewbox = `${mapCenter[1] - bias},${mapCenter[0] + bias},${mapCenter[1] + bias},${mapCenter[0] - bias}`;
-      url += `&viewbox=${viewbox}`;
-
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Search request failed");
-      const data = await res.json();
+      const data = await searchGeocode(searchQuery, { lat: mapCenter[0], lng: mapCenter[1] });
       setSearchResults(data);
 
-      // If results found, move to the first result automatically
       if (data && data.length > 0) {
         const first = data[0];
         const lat = parseFloat(first.lat);
         const lng = parseFloat(first.lon);
-        setMapCenter([lat, lng]);
-        // Also update value if user just hit search to make it easier
-        onChange({ lat, lng, address_name: first.display_name });
+        
+        if (!isNaN(lat) && !isNaN(lng)) {
+          setMapCenter([lat, lng]);
+          onChange({ lat, lng, address_name: first.display_name });
+        }
       } else {
         showNotification("Không tìm thấy địa điểm này.", true);
       }
@@ -102,9 +92,9 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
     } finally {
       setIsSearching(false);
     }
-  };
+  }, [searchQuery, mapCenter, onChange]);
 
-  const handleCurrentLocation = () => {
+  const handleCurrentLocation = React.useCallback(() => {
     if (!navigator.geolocation) {
       showNotification("Trình duyệt không hỗ trợ định vị!", true);
       return;
@@ -116,19 +106,9 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
         const { latitude, longitude } = position.coords;
         setMapCenter([latitude, longitude]);
         
-        // Reverse geocode
-        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
-          .then(async res => {
-            if (!res.ok) throw new Error("Reverse geocoding failed");
-            return res.json();
-          })
-          .then(data => {
-            const address = data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+        reverseGeocode(latitude, longitude)
+          .then(address => {
             onChange({ lat: latitude, lng: longitude, address_name: address });
-          })
-          .catch((err) => {
-            console.error("Reverse geocoding error:", err);
-            onChange({ lat: latitude, lng: longitude, address_name: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}` });
           })
           .finally(() => {
             setIsSearching(false);
@@ -147,16 +127,18 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
-  };
+  }, [onChange]);
 
-  const selectResult = (result: any) => {
+  const selectResult = React.useCallback((result: any) => {
     const lat = parseFloat(result.lat);
     const lng = parseFloat(result.lon);
-    onChange({ lat, lng, address_name: result.display_name });
-    setMapCenter([lat, lng]);
-    setSearchResults([]);
-    setSearchQuery('');
-  };
+    if (!isNaN(lat) && !isNaN(lng)) {
+      onChange({ lat, lng, address_name: result.display_name });
+      setMapCenter([lat, lng]);
+      setSearchResults([]);
+      setSearchQuery('');
+    }
+  }, [onChange]);
 
   return (
     <div className="space-y-3">
@@ -215,6 +197,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
         <MapContainer
           center={mapCenter}
           zoom={13}
+          preferCanvas={true}
           style={{ height: '100%', width: '100%' }}
         >
           <ChangeView center={mapCenter} />
@@ -222,8 +205,8 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          {value && (
-            <Marker position={[value.lat, value.lng]} icon={defaultIcon} />
+          {value && !isNaN(Number(value.lat)) && !isNaN(Number(value.lng)) && (
+            <Marker position={[Number(value.lat), Number(value.lng)]} icon={defaultIcon} />
           )}
           <MapEvents />
         </MapContainer>

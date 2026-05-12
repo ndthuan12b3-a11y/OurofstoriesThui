@@ -10,7 +10,8 @@ interface UserProfile {
   avatar_url: string | null;
 }
 
-const Navigation = lazy(() => import('./components/Navigation').then(m => ({ default: m.Navigation })));
+// Optimized Navigation with memo
+const Navigation = lazy(() => import('./components/Navigation').then(m => ({ default: React.memo(m.Navigation) })));
 import { Auth } from './components/Auth';
 import { Modal } from './components/Modal';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
@@ -26,7 +27,6 @@ import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 const Gallery = lazy(() => import('./components/Gallery').then(m => ({ default: m.Gallery })));
 const Timeline = lazy(() => import('./components/Timeline').then(m => ({ default: m.Timeline })));
 const Management = lazy(() => import('./components/Management').then(m => ({ default: m.Management })));
-const LoveMoodTracker = lazy(() => import('./components/LoveMoodTracker').then(m => ({ default: m.LoveMoodTracker })));
 const StoryMap = lazy(() => import('./components/StoryMap').then(m => ({ default: m.StoryMap })));
 import { LocationSharing } from './components/LocationSharing';
 
@@ -57,20 +57,6 @@ export default function App() {
   const [passcode, setPasscode] = useState('');
   const [isBgLoaded, setIsBgLoaded] = useState(false);
   const [events, setEvents] = useState<any[]>([]);
-
-  useEffect(() => {
-    // Global fetch error handler
-    const handleRejection = (event: PromiseRejectionEvent) => {
-      const error = event.reason;
-      const errorMsg = error?.message || String(error);
-      if (errorMsg.includes('Failed to fetch')) {
-        showNotification('Kết nối mạng gián đoạn hoặc Server quá tải. Đang thử lại... ⏳', true);
-      }
-    };
-
-    window.addEventListener('unhandledrejection', handleRejection);
-    return () => window.removeEventListener('unhandledrejection', handleRejection);
-  }, []);
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -110,6 +96,7 @@ export default function App() {
 
       // 2. Auth & Roles
       const { data: { session }, error } = await supabase.auth.getSession();
+      
       if (error) {
         console.error("Session error:", error.message);
         if (error.message.includes('refresh_token_not_found') || error.message.includes('Invalid Refresh Token')) {
@@ -119,19 +106,23 @@ export default function App() {
       } else {
         setSession(session);
         if (session) {
-          await fetchUserRole(session.user.id);
-          await fetchUserProfile(session.user.id);
+          // Pre-fetch roles
+          await Promise.all([
+            fetchUserRole(session.user.id),
+            fetchUserProfile(session.user.id)
+          ]);
+        } else {
+          setLoadingRole(false);
         }
-        else setLoadingRole(false);
       }
     };
 
     initApp();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) {
-        // Chỉ hiện loading nếu chưa có role, còn đã có thì chạy ngầm
+        // Fetch role and profile quietly in background if already loaded
         fetchUserRole(session.user.id, userRole === 'none');
         fetchUserProfile(session.user.id);
       } else {
@@ -180,9 +171,8 @@ export default function App() {
         throw error;
       }
 
-      const role = data ? data.role : 'none';
+    const role = data ? data.role : 'none';
       setUserRole(role);
-      (window as any).userRole = role; 
     } catch (error: any) {
       console.error("Lỗi quyền người dùng:", error);
       setUserRole('none');
@@ -217,13 +207,6 @@ export default function App() {
       console.error("Lỗi khi tải profile:", error);
     }
   };
-
-  useEffect(() => {
-    if (session?.user.id) {
-      fetchUserRole(session.user.id);
-      fetchUserProfile(session.user.id);
-    }
-  }, [session]);
 
   const fetchConfig = async () => {
     try {
@@ -330,11 +313,6 @@ export default function App() {
   const HAS_VIP_ACCESS = () => userRole === 'vip' || userRole === 'admin';
   const HAS_ADMIN_ACCESS = () => userRole === 'admin';
 
-  // Gán các hàm kiểm tra vào window để sử dụng ở mọi nơi nếu cần
-  (window as any).HAS_VIEW_ACCESS = HAS_VIEW_ACCESS;
-  (window as any).HAS_VIP_ACCESS = HAS_VIP_ACCESS;
-  (window as any).HAS_ADMIN_ACCESS = HAS_ADMIN_ACCESS;
-
   const hasBackgroundAccess = HAS_VIP_ACCESS();
 
   return (
@@ -413,7 +391,6 @@ export default function App() {
                 }>
                   {activeTab === 'home' && (
                     <div id="gallery-container" className="space-y-8">
-                       <LoveMoodTracker userRole={userRole} />
                        <Gallery config={config} userRole={userRole} />
                     </div>
                   )}

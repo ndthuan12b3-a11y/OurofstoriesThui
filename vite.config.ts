@@ -81,14 +81,21 @@ export default defineConfig(({mode}) => {
       })
     ],
     define: {
+      global: 'globalThis',
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      'process.env.GOOGLE_MAP_API_KEY': JSON.stringify(env.VITE_GOOGLE_MAP_API_KEY || ''),
+      'process.env.GOOGLE_MAPS_PLATFORM_KEY': JSON.stringify(env.GOOGLE_MAPS_PLATFORM_KEY || env.VITE_GOOGLE_MAPS_PLATFORM_KEY || ''),
     },
     resolve: {
       alias: {
+        'formdata-polyfill': path.resolve(__dirname, 'src/lib/empty.ts'),
+        'node-fetch': path.resolve(__dirname, 'src/lib/fetch-shim.ts'),
         '@': path.resolve(__dirname, '.'),
-        'formdata-polyfill/esm.min.js': path.resolve(__dirname, 'mock-formdata.js'),
-        'formdata-polyfill': path.resolve(__dirname, 'mock-formdata.js'),
       },
+    },
+    optimizeDeps: {
+      include: ['p-retry'],
+      exclude: ['formdata-polyfill', 'node-fetch', '@google/genai', '@supabase/supabase-js']
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

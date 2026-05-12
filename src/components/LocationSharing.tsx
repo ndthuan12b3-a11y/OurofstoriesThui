@@ -74,15 +74,15 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
               return;
             }
 
-            // Throttling for DB: Update DB every 10s hoặc di chuyển > 2m
+            // Throttling for DB: Update DB every 15s hoặc di chuyển > 5m
             const shouldUpdateDB = () => {
               if (!lastPosRef.current) return true;
-              if (now - lastUpdateRef.current > 10000) return true;
+              if (now - lastUpdateRef.current > 15000) return true;
               
               const dLat = latitude - lastPosRef.current[0];
               const dLng = longitude - lastPosRef.current[1];
               const distSq = dLat*dLat + dLng*dLng;
-              return distSq > 0.0000004; // ~2 meters squared (more efficient check)
+              return distSq > 0.000000002; // ~5 meters squared
             };
 
             if (shouldUpdateDB()) {
