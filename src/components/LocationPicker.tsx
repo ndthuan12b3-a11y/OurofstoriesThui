@@ -27,9 +27,15 @@ interface LocationPickerProps {
 const ChangeView = ({ center }: { center: [number, number] }) => {
   const map = useMap();
   useEffect(() => {
-    map.flyTo(center, 15, {
-      duration: 1.5
-    });
+    if (map) {
+      try {
+        map.flyTo(center, 15, {
+          duration: 1.5
+        });
+      } catch (e) {
+        // Ignored
+      }
+    }
   }, [center, map]);
   return null;
 };

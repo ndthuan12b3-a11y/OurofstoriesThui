@@ -95,7 +95,7 @@ interface ManagementProps {
   config: AppConfig;
   onConfigUpdate: () => void;
   userId: string;
-  userProfile?: { id: string, avatar_url: string | null, full_name?: string } | null;
+  userProfile?: { id: string, avatar_url: string | null } | null;
   onProfileUpdate?: () => void;
 }
 
@@ -146,13 +146,6 @@ export const Management: React.FC<ManagementProps> = ({
   const [musicForm, setMusicForm] = useState({ title: '', musicFile: null as File | null });
   const [personalAvatarFile, setPersonalAvatarFile] = useState<File | null>(null);
   const [personalAvatarPreview, setPersonalAvatarPreview] = useState<string | null>(null);
-  const [personalName, setPersonalName] = useState(userProfile?.full_name || '');
-
-  useEffect(() => {
-    if (userProfile?.full_name !== undefined) {
-      setPersonalName(userProfile.full_name || '');
-    }
-  }, [userProfile?.full_name]);
 
   useEffect(() => {
     if (personalAvatarFile) {
@@ -197,7 +190,6 @@ export const Management: React.FC<ManagementProps> = ({
         id: userId,
         user_id: userId,
         avatar_url: avatarUrl,
-        full_name: personalName,
         updated_at: new Date().toISOString()
       };
 
@@ -639,19 +631,8 @@ export const Management: React.FC<ManagementProps> = ({
                 <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">Hồ sơ cá nhân</h2>
                 <p className="text-sm text-gray-500 font-medium mt-1">Cài đặt ảnh đại diện riêng để hiển thị trên bản đồ và các hoạt động của bạn.</p>
                 
-                <div className="mt-6 space-y-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Tên hiển thị</label>
-                    <input 
-                      type="text"
-                      value={personalName}
-                      onChange={(e) => setPersonalName(e.target.value)}
-                      placeholder="Nhập tên của bạn..."
-                      className="w-full px-5 py-3 rounded-2xl bg-gray-50 border-none focus:ring-2 focus:ring-primary/20 text-sm font-bold text-gray-800 transition-all"
-                    />
-                  </div>
-                  
-                  {(personalAvatarFile || personalName !== (userProfile?.full_name || '')) && (
+                <div className="mt-6 flex flex-col items-center md:items-start gap-4">
+                  {(personalAvatarFile) && (
                     <motion.div 
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -668,7 +649,6 @@ export const Management: React.FC<ManagementProps> = ({
                       <button 
                         onClick={() => {
                           setPersonalAvatarFile(null);
-                          setPersonalName(userProfile?.full_name || '');
                         }}
                         className="px-6 py-3 bg-gray-100 text-gray-500 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
                       >

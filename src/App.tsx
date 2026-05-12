@@ -8,7 +8,6 @@ import { UserRole, AppConfig } from './types';
 interface UserProfile {
   id: string;
   avatar_url: string | null;
-  full_name?: string;
 }
 
 // Optimized Navigation with memo
@@ -74,11 +73,27 @@ export default function App() {
       .channel('events-global')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, fetchEvents)
       .subscribe();
+      
+    const configChannel = supabase
+      .channel('config-global')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'config' }, fetchConfig)
+      .subscribe();
+
+    const profilesChannel = supabase
+      .channel('profiles-global')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
+         if (payload.new && (payload.new as any).user_id === session?.user?.id) {
+            fetchUserProfile((payload.new as any).user_id);
+         }
+      })
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(configChannel);
+      supabase.removeChannel(profilesChannel);
     };
-  }, []);
+  }, [session?.user?.id]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -203,7 +218,6 @@ export default function App() {
         setUserProfile({ 
           id: data.user_id || userId, 
           avatar_url: data.avatar_url, 
-          full_name: (data as any).full_name 
         });
       } else {
         setUserProfile({ id: userId, avatar_url: null });

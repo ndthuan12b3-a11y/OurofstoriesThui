@@ -41,9 +41,11 @@ const SmoothMarker = ({ position, icon, children }: {
   const requestRef = React.useRef<number | undefined>(undefined);
 
   React.useEffect(() => {
+    let isSubscribed = true;
     targetPosRef.current = position;
     
     const animate = () => {
+      if (!isSubscribed) return;
       const [curLat, curLng] = currentPosRef.current;
       const [tarLat, tarLng] = targetPosRef.current;
       
@@ -52,7 +54,11 @@ const SmoothMarker = ({ position, icon, children }: {
       const factor = 0.04; // Animation speed
       
       if (Math.abs(dfLat) < 0.0000001 && Math.abs(dfLng) < 0.0000001) {
-        if (markerRef.current) markerRef.current.setLatLng(targetPosRef.current);
+        if (markerRef.current) {
+          try {
+            markerRef.current.setLatLng(targetPosRef.current);
+          } catch(e) {}
+        }
         currentPosRef.current = targetPosRef.current;
         requestRef.current = undefined;
         return;
@@ -64,7 +70,9 @@ const SmoothMarker = ({ position, icon, children }: {
       ];
       
       if (markerRef.current) {
-        markerRef.current.setLatLng(nextPos);
+        try {
+          markerRef.current.setLatLng(nextPos);
+        } catch(e) {}
       }
       currentPosRef.current = nextPos;
       requestRef.current = requestAnimationFrame(animate);
@@ -73,6 +81,14 @@ const SmoothMarker = ({ position, icon, children }: {
     if (!requestRef.current) {
       requestRef.current = requestAnimationFrame(animate);
     }
+    
+    return () => {
+      isSubscribed = false;
+      if (requestRef.current) {
+        cancelAnimationFrame(requestRef.current);
+        requestRef.current = undefined;
+      }
+    };
   }, [position]);
 
   return (
@@ -87,74 +103,42 @@ const SmoothMarker = ({ position, icon, children }: {
 };
 
 // Custom marker with image
-const CustomMarker = React.memo(({ position, imageUrl, isOffline, label, color = 'rose' }: { 
+const CustomMarker = React.memo(({ position, imageUrl, isOffline, color = 'rose' }: { 
   position: [number, number], 
   imageUrl: string, 
-  isOffline?: boolean, 
-  label: string,
+  isOffline?: boolean,
   color?: 'rose' | 'blue'
 }) => {
-  const borderColor = color === 'rose' ? (isOffline ? 'border-gray-200 grayscale' : 'border-rose-400') : (isOffline ? 'border-gray-200 grayscale' : 'border-blue-400');
-  const arrowColor = color === 'rose' ? (isOffline ? 'bg-gray-200' : 'bg-rose-400') : (isOffline ? 'bg-gray-200' : 'bg-blue-400');
   const pingColor = color === 'rose' ? 'bg-rose-400/20' : 'bg-blue-400/20';
   const pulseBorder = color === 'rose' ? 'border-rose-400/30' : 'border-blue-400/30';
-  const labelColor = color === 'rose' ? 'text-rose-500 border-rose-100' : 'text-blue-500 border-blue-100';
 
   const icon = useMemo(() => divIcon({
     className: 'custom-div-icon',
     html: `
-      <div class="relative group animate-marker-breath" style="will-change: transform;">
-        <svg width="48" height="60" viewBox="0 0 48 60" class="relative z-10 drop-shadow-2xl">
-          <defs>
-            <clipPath id="avatarClip">
-              <rect x="4" y="4" width="40" height="40" rx="12" />
-            </clipPath>
-          </defs>
-          <!-- Outer Border / Shadow -->
-          <rect x="2" y="2" width="44" height="44" rx="14" fill="white" />
-          <rect x="2" y="2" width="44" height="44" rx="14" fill="none" stroke="${color === 'rose' ? '#fb7185' : '#60a5fa'}" stroke-width="4" class="${isOffline ? 'grayscale' : ''}" />
-          
-          <!-- Pin Tip -->
-          <path d="M24 60 L18 46 L30 46 Z" fill="${color === 'rose' ? '#fb7185' : '#60a5fa'}" class="${isOffline ? 'grayscale' : ''}" />
-          
-          <!-- Avatar -->
-          <image 
-            href="${imageUrl}" 
-            x="4" y="4" width="40" height="40" 
-            clip-path="url(#avatarClip)"
-            preserveAspectRatio="xMidYMid slice"
-            class="${isOffline ? 'grayscale' : ''}"
-          />
-          
+      <div class="relative group animate-marker-breath flex flex-col items-center w-12 h-[60px]" style="will-change: transform;">
+        <div class="relative w-12 h-12 bg-white rounded-[14px] shadow-xl z-20 flex items-center justify-center p-[2px]" style="border: 3px solid ${color === 'rose' ? '#fb7185' : '#60a5fa'}">
+          <div style="width: 100%; height: 100%; border-radius: 9px; overflow: hidden; background-color: #f3f4f6; position: relative;">
+            <img src="${encodeURI(imageUrl)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'" />
+          </div>
           ${!isOffline ? `
-            <circle cx="40" cy="8" r="5" fill="white" />
-            <circle cx="40" cy="8" r="3" fill="#22c55e" class="animate-pulse" />
+            <div class="absolute -right-1.5 -top-1.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white z-30"></div>
           ` : ''}
-        </svg>
-
+        </div>
+        <!-- Triangle Tail -->
+        <div class="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px]" style="border-top-color: ${color === 'rose' ? '#fb7185' : '#60a5fa'}; margin-top: -1px; z-index: 10;"></div>
+        
         ${!isOffline ? `
-          <div class="absolute top-0 left-0 w-12 h-12 rounded-2xl ${pingColor} animate-ping -z-10"></div>
-          <div class="absolute -inset-2 rounded-2xl border-2 ${pulseBorder} animate-marker-pulse -z-10"></div>
+          <div class="absolute top-0 left-0 w-12 h-12 rounded-[14px] ${pingColor} animate-ping -z-10"></div>
+          <div class="absolute -inset-[2px] rounded-[16px] border-2 ${pulseBorder} animate-marker-pulse -z-10"></div>
         ` : ''}
       </div>
     `,
     iconSize: [48, 60],
     iconAnchor: [24, 60],
-  }), [imageUrl, isOffline, color]);
+  }), [imageUrl, isOffline, color, pingColor, pulseBorder]);
 
   return (
     <SmoothMarker position={position} icon={icon}>
-      <Popup className="custom-popup">
-        <div className="text-center p-1">
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">{isOffline ? 'Offline' : 'Online'}</p>
-          <p className="text-xs font-bold text-gray-800">{label}</p>
-        </div>
-      </Popup>
-      <Tooltip direction="top" offset={[0, -20]} opacity={1} permanent>
-        <span className={`text-[10px] font-bold bg-white/90 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-sm border ${labelColor}`}>
-          {label}
-        </span>
-      </Tooltip>
     </SmoothMarker>
   );
 });
@@ -226,7 +210,7 @@ interface StoryMapProps {
   events: Event[];
   config: AppConfig;
   userId?: string;
-  userProfile?: { id: string, avatar_url: string | null, full_name?: string } | null;
+  userProfile?: { id: string, avatar_url: string | null } | null;
 }
 
 interface TrackedUser {
@@ -243,18 +227,18 @@ interface TrackedUser {
 const ZoomControl = () => {
   const map = useMap();
   return (
-    <div className="absolute bottom-10 right-6 z-[1000] flex flex-col gap-2">
+    <div className="absolute bottom-6 right-4 md:bottom-10 md:right-6 z-[1000] flex flex-col gap-2">
       <button 
         onClick={() => map.zoomIn()}
-        className="w-10 h-10 bg-white shadow-xl rounded-2xl flex items-center justify-center text-gray-800 hover:bg-gray-50 active:scale-95 transition-all"
+        className="w-8 h-8 md:w-10 md:h-10 bg-white/90 backdrop-blur-sm shadow-xl rounded-xl md:rounded-2xl flex items-center justify-center text-gray-800 hover:bg-gray-50 active:scale-95 transition-all"
       >
-        <Plus size={20} />
+        <Plus size={18} />
       </button>
       <button 
         onClick={() => map.zoomOut()}
-        className="w-10 h-10 bg-white shadow-xl rounded-2xl flex items-center justify-center text-gray-800 hover:bg-gray-50 active:scale-95 transition-all"
+        className="w-8 h-8 md:w-10 md:h-10 bg-white/90 backdrop-blur-sm shadow-xl rounded-xl md:rounded-2xl flex items-center justify-center text-gray-800 hover:bg-gray-50 active:scale-95 transition-all"
       >
-        <Minus size={20} />
+        <Minus size={18} />
       </button>
     </div>
   );
@@ -299,18 +283,22 @@ const FitBoundsComponent = ({
       lastKeyRef.current = refocusKey;
       
       if (points.length === 1) {
-        map.flyTo(points[0], 16, { 
-          duration: 2,
-          easeLinearity: 0.1
-        });
+        try {
+          map.flyTo(points[0], 16, { 
+            duration: 2,
+            easeLinearity: 0.1
+          });
+        } catch (e) {}
       } else {
-        const bounds = L.latLngBounds(points);
-        map.fitBounds(bounds, { 
-          padding: [70, 70], 
-          maxZoom: 16, 
-          duration: 2,
-          easeLinearity: 0.1
-        });
+        try {
+          const bounds = L.latLngBounds(points);
+          map.fitBounds(bounds, { 
+            padding: [70, 70], 
+            maxZoom: 16, 
+            duration: 2,
+            easeLinearity: 0.1
+          });
+        } catch (e) {}
       }
     }
   }, [refocusKey, points, map]);
@@ -340,9 +328,19 @@ const FlyToController = ({ target }: { target: [number, number] | null }) => {
 const InvalidateSizeHandler = ({ trigger }: { trigger: any }) => {
   const map = useMap();
   React.useEffect(() => {
-    setTimeout(() => {
-      map.invalidateSize();
-    }, 500); // Wait for transition animation to finish
+    let timeoutId: NodeJS.Timeout;
+    if (map) {
+      timeoutId = setTimeout(() => {
+        try {
+          map.invalidateSize();
+        } catch (e) {
+          // Ignore if map is unmounted
+        }
+      }, 500); // Wait for transition animation to finish
+    }
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [trigger, map]);
   return null;
 };
@@ -350,7 +348,7 @@ const InvalidateSizeHandler = ({ trigger }: { trigger: any }) => {
 // Removed old MapController
 
 export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, userProfile }) => {
-  const { isOtherOnline: isOtherPresenceOnline } = usePresence();
+  const { onlineUsers } = usePresence();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showList, setShowList] = useState(true);
   const [selectedItem, setSelectedItem] = useState<Event | null>(null);
@@ -396,7 +394,11 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
 
   const formatTime = (isoString: string) => {
     if (!isoString) return '';
-    const date = new Date(isoString);
+    let dateStr = isoString;
+    if (!dateStr.endsWith('Z') && !dateStr.includes('+')) {
+      dateStr += 'Z';
+    }
+    const date = new Date(dateStr);
     const now = new Date();
     const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
     if (diff < 60) return 'vừa xong';
@@ -409,13 +411,18 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
     if (!userId || !supabase) return;
 
     let profilesMap: Record<string, any> = {};
+    let creatorId: string | null = null;
 
     const fetchAllData = async () => {
       try {
+        // Fetch Admin/Config creator ID to map male/female names deterministically
+        const { data: configData } = await supabase.from('config').select('user_id').limit(1).maybeSingle();
+        if (configData?.user_id) creatorId = configData.user_id;
+
         // 1. Fetch Profiles
         const { data: profiles } = await supabase
           .from('profiles')
-          .select('user_id, avatar_url, full_name' as any);
+          .select('user_id, avatar_url');
         
         if (profiles) {
           profiles.forEach(p => {
@@ -432,16 +439,22 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           const newTrackedUsers: Record<string, TrackedUser> = {};
           locations.forEach(loc => {
             const profile = profilesMap[loc.user_id];
-            const isOnline = (Date.now() - new Date(loc.updated_at).getTime()) < 300000; // 5 mins
+            let dateStr = loc.updated_at;
+            if (dateStr && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
+              dateStr += 'Z';
+            }
+            const isOnline = (Date.now() - new Date(dateStr).getTime()) < 300000; // 5 mins
             
-            let name = 'Người dùng';
-            if (loc.user_id === userId) {
-              name = 'Bạn';
-            } else if (profile?.full_name) {
-              name = profile.full_name;
+            // Map names: Creator -> Tên Anh (name_male), Other -> Tên Em (name_female)
+            // Typically creator might want to be name_male or name_female, but if it is reversed we swap it here.
+            let name = config.name_male;
+            if (creatorId) {
+              name = loc.user_id === creatorId ? config.name_female : config.name_male;
             } else {
-              // Fallback based on config if there are only 2 users
-              name = config.name_male === 'Anh' ? 'Người ấy' : 'Người ấy';
+              // fallback: smallest user_id is male
+              const sortedIds = profiles ? profiles.map(p => p.user_id).sort() : [];
+              if (sortedIds[0] === loc.user_id) name = config.name_female;
+              else name = config.name_male;
             }
 
             newTrackedUsers[loc.user_id] = {
@@ -450,7 +463,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
               lng: Number(loc.lng),
               updated_at: loc.updated_at,
               avatar_url: profile?.avatar_url || null,
-              name: name,
+              name: name || 'Người dùng',
               address: '',
               isOnline: isOnline
             };
@@ -482,7 +495,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           if (!profilesMap[uid]) {
             const { data: profile } = await supabase
               .from('profiles')
-              .select('user_id, avatar_url, full_name' as any)
+              .select('user_id, avatar_url')
               .eq('user_id', uid)
               .maybeSingle();
             if (profile) profilesMap[uid] = profile;
@@ -490,7 +503,17 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
 
           setTrackedUsers(prev => {
             const profile = profilesMap[uid];
-            const name = uid === userId ? 'Bạn' : (profile?.full_name || 'Người ấy');
+            
+            let name = config.name_male;
+            if (creatorId) {
+              name = uid === creatorId ? config.name_female : config.name_male;
+            } else {
+              const allIds = Object.keys(prev);
+              if (!allIds.includes(uid)) allIds.push(uid);
+              allIds.sort();
+              name = allIds[0] === uid ? config.name_female : config.name_male;
+            }
+
             return {
               ...prev,
               [uid]: {
@@ -499,7 +522,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
                 lng: coords[1],
                 updated_at: loc.updated_at,
                 avatar_url: profile?.avatar_url || prev[uid]?.avatar_url || null,
-                name: name,
+                name: name || 'Người dùng',
                 address: prev[uid]?.address || '',
                 isOnline: true
               }
@@ -515,14 +538,14 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, [userId]);
+  }, [userId, config.name_male, config.name_female]);
 
   // Derived properties for UI
   const userLocation = trackedUsers[userId!] ? [trackedUsers[userId!].lat, trackedUsers[userId!].lng] as [number, number] : null;
   const otherUsers = sortedUsers.filter(u => u.user_id !== userId);
   const mainOther = otherUsers[0] || null;
   const otherLocation = mainOther ? [mainOther.lat, mainOther.lng] as [number, number] : null;
-  const isOtherOnline = mainOther?.isOnline || false;
+  const isOtherOnline = mainOther ? onlineUsers.includes(mainOther.user_id) : false;
   const otherAddress = mainOther?.address || '';
   const otherLastUpdate = mainOther?.updated_at || '';
   const userAddress = trackedUsers[userId!]?.address || '';
@@ -644,18 +667,18 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => handleSelectLiveLocation([user.lat, user.lng], user.name)}
-                className={`w-full p-3 rounded-2xl border transition-all flex items-center gap-3 ${user.isOnline ? 'bg-rose-50/50 border-rose-100' : 'bg-white/60 border-white/50'}`}
+                className={`w-full p-3 rounded-2xl border transition-all flex items-center gap-3 ${onlineUsers.includes(user.user_id) ? 'bg-rose-50/50 border-rose-100' : 'bg-white/60 border-white/50'}`}
               >
-                <div className={`w-10 h-10 rounded-xl overflow-hidden shadow-sm border-2 ${user.isOnline ? 'border-rose-400' : 'border-white'} bg-gray-50`}>
-                  <img src={user.avatar_url || 'https://placehold.co/100x100?text=' + user.name.charAt(0)} className={`w-full h-full object-cover ${user.isOnline ? '' : 'grayscale'}`} alt={user.name} />
+                <div className={`w-10 h-10 rounded-xl overflow-hidden shadow-sm border-2 ${onlineUsers.includes(user.user_id) ? 'border-rose-400' : 'border-white'} bg-gray-50`}>
+                  <img src={user.avatar_url || 'https://placehold.co/100x100?text=' + user.name.charAt(0)} className="w-full h-full object-cover" alt={user.name} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <h4 className="text-[11px] font-bold text-gray-800 flex items-center gap-1">
                     {user.name}
-                    {user.isOnline && <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>}
+                    {onlineUsers.includes(user.user_id) && <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>}
                   </h4>
                   <p className="text-[9px] text-gray-500 truncate">{user.address || 'Đang xác định vị trí...'}</p>
-                  {user.user_id !== userId && distance && user.isOnline && (
+                  {user.user_id !== userId && distance && onlineUsers.includes(user.user_id) && (
                     <p className="text-[10px] font-bold text-rose-500 flex items-center gap-1 mt-0.5">
                       <NavIcon size={10} className="rotate-45" /> Cách bạn {distance}
                     </p>
@@ -700,7 +723,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
       {/* Map Content */}
       <div className="relative flex-1 min-h-[400px] h-full overflow-hidden">
         {/* HUD Controls */}
-        <div className="absolute top-6 left-6 right-6 z-[1000] flex items-center justify-between pointer-events-none">
+        <div className="absolute top-4 left-4 right-4 md:top-6 md:left-6 md:right-6 z-[1000] flex items-center justify-between pointer-events-none">
           <div className="flex gap-2 pointer-events-auto">
             <motion.button
               whileHover={{ scale: 1.05 }}
@@ -716,37 +739,38 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
                   showNotification('Không tìm thấy vị trí người ấy', true);
                 }
               }}
-              className="bg-white/70 backdrop-blur-md px-5 py-3 rounded-3xl border border-white/50 shadow-lg flex items-center gap-3 text-gray-800 hover:text-rose-500 transition-colors"
+              className="w-10 h-10 md:w-auto md:h-auto md:px-5 md:py-3 bg-white/70 backdrop-blur-md rounded-full md:rounded-3xl border border-white/50 shadow-lg flex items-center justify-center md:justify-start gap-2 text-gray-800 hover:text-rose-500 transition-colors pointer-events-auto"
               title="Tìm người ấy"
             >
-              <Zap size={20} className="text-rose-500" />
-              <span className="text-xs font-bold font-sans">Tìm người ấy</span>
+              <Zap size={18} className="text-rose-500 shrink-0" />
+              <span className="text-xs font-bold font-sans hidden md:block">Tìm người ấy</span>
             </motion.button>
 
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => setShowList(!showList)}
-              className={`bg-white/70 backdrop-blur-md px-5 py-3 rounded-3xl border border-white/50 shadow-lg flex items-center gap-3 transition-colors ${showList ? 'bg-rose-500 text-white border-rose-400' : 'text-gray-800'}`}
+              className={`w-10 h-10 md:w-auto md:h-auto md:px-5 md:py-3 bg-white/70 backdrop-blur-md rounded-full md:rounded-3xl border border-white/50 shadow-lg flex items-center justify-center md:justify-start gap-2 transition-colors pointer-events-auto ${showList ? 'bg-rose-500 text-white border-rose-400' : 'text-gray-800'}`}
+              title="Kỷ niệm"
             >
-              <List size={20} />
-              <span className="text-xs font-bold font-sans">Kỷ niệm</span>
+              <List size={18} className="shrink-0" />
+              <span className="text-xs font-bold font-sans hidden md:block">Kỷ niệm</span>
             </motion.button>
           </div>
 
           <div className="flex gap-2 pointer-events-auto">
             <button 
               onClick={() => setIsFullscreen(!isFullscreen)}
-              className="p-4 bg-white/70 backdrop-blur-md text-gray-800 rounded-3xl border border-white/50 shadow-lg hover:scale-110 active:scale-95 transition-all"
+              className="w-10 h-10 md:w-auto md:h-auto md:p-4 bg-white/70 backdrop-blur-md text-gray-800 rounded-full md:rounded-3xl border border-white/50 shadow-lg flex items-center justify-center hover:scale-110 active:scale-95 transition-all"
             >
-              {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+              {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
             </button>
             {isFullscreen && (
               <button 
                 onClick={() => setIsFullscreen(false)}
-                className="p-4 bg-rose-400/10 backdrop-blur-md text-rose-500 rounded-3xl border border-rose-100 shadow-lg hover:scale-110 active:scale-95 transition-all"
+                className="w-10 h-10 md:w-auto md:h-auto md:p-4 flex items-center justify-center bg-rose-400/10 backdrop-blur-md text-rose-500 rounded-full md:rounded-3xl border border-rose-100 shadow-lg hover:scale-110 active:scale-95 transition-all"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             )}
           </div>
@@ -812,8 +836,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
               key={user.user_id}
               position={[user.lat, user.lng]}
               imageUrl={user.avatar_url || 'https://placehold.co/100x100?text=' + user.name.charAt(0)}
-              isOffline={!user.isOnline}
-              label={user.name}
+              isOffline={!onlineUsers.includes(user.user_id)}
               color={user.user_id === userId ? 'rose' : 'blue'}
             />
           ))}
@@ -823,12 +846,13 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
 
         {/* Mobile Memory List Toggle */}
         {!showList && (
-           <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-[1000] md:hidden">
+           <div className="absolute bottom-6 left-4 z-[1000] md:hidden">
               <button 
                 onClick={() => setShowList(true)}
-                className="bg-white/80 backdrop-blur-md px-6 py-3 rounded-full border border-white shadow-xl text-gray-800 text-xs font-bold flex items-center gap-2"
+                className="w-10 h-10 bg-white/90 backdrop-blur-md rounded-full border border-white shadow-xl text-gray-800 flex items-center justify-center pointer-events-auto"
+                title="Xem danh sách"
               >
-                <List size={16} /> Xem danh sách
+                <List size={18} />
               </button>
            </div>
         )}
@@ -836,7 +860,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
 
       {/* Legend / Info */}
       {!isFullscreen && !showList && (
-        <div className="absolute bottom-6 left-6 z-[1000] max-w-[200px]">
+        <div className="absolute bottom-6 left-6 z-[1000] max-w-[200px] hidden md:block">
           <p className="text-[8px] font-bold text-gray-400 bg-white/50 backdrop-blur-sm px-3 py-1.5 rounded-full inline-block">
             Sử dụng OpenStreetMap & Leaflet
           </p>
