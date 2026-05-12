@@ -1,10 +1,53 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 @theme {
   --color-primary: #ff8fa3;
   --color-primary-light: #fff5f7;
   --radius-lg: 1.5rem;
   --radius-xl: 2rem;
+}
+
+@keyframes marker-pulse {
+  0% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.2); opacity: 0.4; }
+  100% { transform: scale(1); opacity: 0.8; }
+}
+
+@keyframes marker-breath {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.animate-marker-pulse {
+  animation: marker-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-marker-breath {
+  animation: marker-breath 3s ease-in-out infinite;
+}
+
+.leaflet-container {
+  will-change: transform;
+  pointer-events: auto;
+}
+
+.leaflet-marker-icon, .leaflet-marker-shadow, .leaflet-tile-container {
+  will-change: transform;
+}
+
+/* Smooth Movement for Markers */
+.leaflet-marker-icon {
+  transition: transform 0.5s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.leaflet-zoom-animated {
+  transition: transform 0.25s cubic-bezier(0, 0, 0.25, 1);
+}
+
+.custom-div-icon {
+  background: none !important;
+  border: none !important;
 }
 
 :root {
@@ -104,10 +147,36 @@ img {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--primary-color);
+  background: #e5e7eb;
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #f87171;
+  background: #d1d5db;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #d1d5db;
 }

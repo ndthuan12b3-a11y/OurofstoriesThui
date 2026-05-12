@@ -61,6 +61,7 @@ export interface Database {
           description: string
           date: string
           photo_url: string
+          location: { lat: number; lng: number; address_name: string } | null
           created_at: string
           updated_at: string
         }
@@ -71,6 +72,7 @@ export interface Database {
           description: string
           date: string
           photo_url: string
+          location?: { lat: number; lng: number; address_name: string } | null
           created_at?: string
           updated_at?: string
         }
@@ -81,6 +83,7 @@ export interface Database {
           description?: string
           date?: string
           photo_url?: string
+          location?: { lat: number; lng: number; address_name: string } | null
           created_at?: string
           updated_at?: string
         }
@@ -157,6 +160,66 @@ export interface Database {
           id?: string
           user_id?: string
           role?: 'none' | 'vip' | 'admin'
+          created_at?: string
+        }
+      }
+      profiles: {
+        Row: {
+          user_id: string
+          avatar_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          avatar_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          avatar_url?: string | null
+          updated_at?: string
+        }
+      }
+      locations: {
+        Row: {
+          user_id: string
+          lat: number
+          lng: number
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          lat: number
+          lng: number
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          lat?: number
+          lng?: number
+          updated_at?: string
+        }
+      }
+      stories: {
+        Row: {
+          id: string
+          user_id: string
+          content: string
+          location: { lat: number; lng: number; address_name: string } | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          content: string
+          location?: { lat: number; lng: number; address_name: string } | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          content?: string
+          location?: { lat: number; lng: number; address_name: string } | null
           created_at?: string
         }
       }

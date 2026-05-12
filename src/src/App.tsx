@@ -1,19 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { Toaster } from 'react-hot-toast';
+import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from './lib/supabase';
 import { UserRole, AppConfig } from './types';
-import { Navigation } from './components/Navigation';
+
+interface UserProfile {
+  id: string;
+  avatar_url: string | null;
+}
+
+// Optimized Navigation with memo
+const Navigation = lazy(() => import('./components/Navigation').then(m => ({ default: React.memo(m.Navigation) })));
 import { Auth } from './components/Auth';
-import { Gallery } from './components/Gallery';
-import { Timeline } from './components/Timeline';
-import { Management } from './components/Management';
 import { Modal } from './components/Modal';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { MemoriesNotification } from './components/MemoriesNotification';
 import { showNotification } from './lib/notifications';
+import { PresenceProvider, usePresence } from './lib/PresenceContext';
 import { cn } from './lib/utils';
-import { Lock, LogOut, ShieldAlert } from 'lucide-react';
+import { Lock, LogOut, ShieldAlert, Plus } from 'lucide-react';
+import { GallerySkeleton, TimelineSkeleton } from './components/Skeleton';
+import { PWAInstallPrompt } from './components/PWAInstallPrompt';
+
+// Lazy load components for performance
+const Gallery = lazy(() => import('./components/Gallery').then(m => ({ default: m.Gallery })));
+const Timeline = lazy(() => import('./components/Timeline').then(m => ({ default: m.Timeline })));
+const Management = lazy(() => import('./components/Management').then(m => ({ default: m.Management })));
+const StoryMap = lazy(() => import('./components/StoryMap').then(m => ({ default: m.StoryMap })));
+import { LocationSharing } from './components/LocationSharing';
 
 const PRIMARY_CONFIG_ID = '6857068c-7cc5-45ce-8099-23f0e3264251';
 
@@ -35,30 +50,104 @@ export default function App() {
   const [loadingRole, setLoadingRole] = useState(true);
   const [activeTab, setActiveTab] = useState('home');
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isManagerAuthenticated, setIsManagerAuthenticated] = useState(false);
   const [passcodeModalOpen, setPasscodeModalOpen] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
   const [passcode, setPasscode] = useState('');
+  const [isBgLoaded, setIsBgLoaded] = useState(false);
+  const [events, setEvents] = useState<any[]>([]);
+  const [selectedMapEvent, setSelectedMapEvent] = useState<any>(null);
 
   useEffect(() => {
-    if (!SUPABASE_CONFIGURED) return;
+    const fetchEvents = async () => {
+      const { data } = await supabase
+        .from('events')
+        .select('*')
+        .order('date', { ascending: false });
+      if (data) setEvents(data);
+    };
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) fetchUserRole(session.user.id);
-      else setLoadingRole(false);
-    });
+    fetchEvents();
+
+    const channel = supabase
+      .channel('events-global')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, fetchEvents)
+      .subscribe();
+      
+    const configChannel = supabase
+      .channel('config-global')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'config' }, fetchConfig)
+      .subscribe();
+
+    const profilesChannel = supabase
+      .channel('profiles-global')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
+         if (payload.new && (payload.new as any).user_id === session?.user?.id) {
+            fetchUserProfile((payload.new as any).user_id);
+         }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      supabase.removeChannel(configChannel);
+      supabase.removeChannel(profilesChannel);
+    };
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowBackToTop(window.scrollY > 400);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const initApp = async () => {
+      if (!SUPABASE_CONFIGURED) return;
+
+      // 1. Fetch Config First (Essential for UI)
+      await fetchConfig();
+
+      // 2. Auth & Roles
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error("Session error:", error.message);
+        if (error.message.includes('refresh_token_not_found') || error.message.includes('Invalid Refresh Token')) {
+          supabase.auth.signOut();
+        }
+        setLoadingRole(false);
+      } else {
+        setSession(session);
+        if (session) {
+          // Pre-fetch roles
+          await Promise.all([
+            fetchUserRole(session.user.id),
+            fetchUserProfile(session.user.id)
+          ]);
+        } else {
+          setLoadingRole(false);
+        }
+      }
+    };
+
+    initApp();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) fetchUserRole(session.user.id);
-      else {
+      if (session) {
+        // Fetch role and profile quietly in background if already loaded
+        fetchUserRole(session.user.id, userRole === 'none');
+        fetchUserProfile(session.user.id);
+      } else {
         setUserRole('none');
         setLoadingRole(false);
         setIsManagerAuthenticated(false);
       }
     });
-
-    fetchConfig();
 
     return () => subscription.unsubscribe();
   }, []);
@@ -80,38 +169,103 @@ export default function App() {
     );
   }
 
-  const fetchUserRole = async (userId: string) => {
-    setLoadingRole(true);
+  const fetchUserRole = async (userId: string, showLoading = true) => {
+    if (showLoading) setLoadingRole(true);
     try {
+      // Thử dùng user_id, nếu không được thì trả về mặc định
       const { data, error } = await supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
         .maybeSingle() as any;
       
-      if (error) throw error;
+      if (error) {
+        if (error.code === '42703') { // Cột user_id không tồn tại
+          console.warn("Cơ sở dữ liệu thiếu cột 'user_id' trong bảng user_roles. Vui lòng chạy SQL sửa lỗi.");
+          setUserRole('none');
+          return;
+        }
+        throw error;
+      }
 
-      const role = data ? data.role : 'none';
+    const role = data ? data.role : 'none';
       setUserRole(role);
-      (window as any).userRole = role; // Gán quyền lấy được vào biến toàn cục
     } catch (error: any) {
-      console.error("Lỗi khi tải quyền người dùng:", error);
+      console.error("Lỗi quyền người dùng:", error);
       setUserRole('none');
-      (window as any).userRole = 'none';
     } finally {
-      setLoadingRole(false);
+      if (showLoading) setLoadingRole(false);
+    }
+  };
+
+  const fetchUserProfile = async (userId: string) => {
+    if (!userId) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+      
+      if (error) {
+        if (error.code === 'PGRST204' || error.message.includes('avatar_url')) {
+          console.warn("Bảng 'profiles' thiếu cột 'avatar_url'.");
+          setUserProfile({ id: userId, avatar_url: null });
+          return;
+        }
+      }
+      
+      if (data) {
+        setUserProfile({ 
+          id: data.user_id || userId, 
+          avatar_url: data.avatar_url, 
+        });
+      } else {
+        setUserProfile({ id: userId, avatar_url: null });
+      }
+    } catch (error) {
+      console.error("Lỗi khi tải profile:", error);
     }
   };
 
   const fetchConfig = async () => {
-    const { data } = await supabase
-      .from('config')
-      .select('*')
-      .eq('user_id', PRIMARY_CONFIG_ID)
-      .single() as any;
-    if (data) {
-      setConfig(data);
-      document.documentElement.style.setProperty('--primary-color', data.primary_color);
+    try {
+      const { data, error } = await supabase
+        .from('config')
+        .select('*')
+        .eq('user_id', PRIMARY_CONFIG_ID)
+        .single();
+      
+      if (error) {
+        if (error.code === '42703' || error.message.includes('user_id')) {
+           console.warn("Cơ sở dữ liệu thiếu cột 'user_id' trong bảng config. Đang lấy bản ghi mặc định...");
+           const { data: fallbackData } = await supabase.from('config').select('*').limit(1).maybeSingle();
+           if (fallbackData) {
+             setConfig(fallbackData);
+             if (fallbackData.primary_color) {
+               document.documentElement.style.setProperty('--primary-color', fallbackData.primary_color);
+             }
+           }
+           return;
+        }
+        throw error;
+      }
+      
+      if (data) {
+        setConfig(data);
+        if (data.primary_color) {
+          document.documentElement.style.setProperty('--primary-color', data.primary_color);
+        }
+      }
+    } catch (e) {
+      console.warn("Lỗi khi tải cấu hình:", e);
+    }
+  };
+
+  const handleConfigUpdate = async () => {
+    await fetchConfig();
+    if (session?.user?.id) {
+      await fetchUserProfile(session.user.id);
     }
   };
 
@@ -158,9 +312,6 @@ export default function App() {
 
   if (!session) return (
     <div className="min-h-screen">
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-full max-w-md px-4">
-        <BackgroundMusicPlayer active={true} />
-      </div>
       <Auth />
       <Toaster position="top-center" />
     </div>
@@ -182,123 +333,201 @@ export default function App() {
   const HAS_VIP_ACCESS = () => userRole === 'vip' || userRole === 'admin';
   const HAS_ADMIN_ACCESS = () => userRole === 'admin';
 
-  // Gán các hàm kiểm tra vào window để sử dụng ở mọi nơi nếu cần
-  (window as any).HAS_VIEW_ACCESS = HAS_VIEW_ACCESS;
-  (window as any).HAS_VIP_ACCESS = HAS_VIP_ACCESS;
-  (window as any).HAS_ADMIN_ACCESS = HAS_ADMIN_ACCESS;
-
   const hasBackgroundAccess = HAS_VIP_ACCESS();
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row">
-      <Toaster position="top-center" />
-      <MemoriesNotification />
-      <BackgroundMusicPlayer active={true} />
-      
-      {/* Background Layer */}
-      {hasBackgroundAccess && (
-        <div className="fixed inset-0 -z-20 overflow-hidden pointer-events-none select-none">
-          {config.background_video_url ? (
-            <video
-              autoPlay
-              loop
-              muted
-              playsInline
-              className="w-full h-full object-cover opacity-100 transition-opacity duration-1000"
-              src={config.background_video_url}
-              style={{ willChange: 'transform' }}
-            />
-          ) : config.background_image_url ? (
-            <div 
-              className="w-full h-full bg-cover bg-center bg-fixed transition-opacity duration-1000"
-              style={{ 
-                backgroundImage: `url(${config.background_image_url})`,
-                willChange: 'transform'
-              }}
-            />
-          ) : null}
-        </div>
-      )}
+    <PresenceProvider userId={session?.user?.id}>
+      <div className="min-h-screen flex flex-col md:flex-row">
+        {session?.user?.id && <LocationSharing userId={session.user.id} />}
+        <Toaster position="top-center" />
+        <MemoriesNotification />
+        <BackgroundMusicPlayer active={true} />
+        <PWAInstallPrompt />
+        
+        {/* Background Layer */}
+        {hasBackgroundAccess && (
+          <div className="fixed inset-0 -z-20 overflow-hidden pointer-events-none select-none bg-rose-50/30">
+            {config.background_video_url ? (
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                onLoadedData={() => setIsBgLoaded(true)}
+                className={cn(
+                  "w-full h-full object-cover transition-opacity duration-1000",
+                  isBgLoaded ? "opacity-100" : "opacity-0"
+                )}
+                src={config.background_video_url}
+                style={{ willChange: 'opacity' }}
+              />
+            ) : config.background_image_url ? (
+              <div 
+                className={cn(
+                  "w-full h-full bg-cover bg-center bg-fixed transition-opacity duration-1000",
+                  isBgLoaded ? "opacity-100" : "opacity-0"
+                )}
+                style={{ 
+                  backgroundImage: `url(${config.background_image_url})`,
+                  willChange: 'opacity'
+                }}
+                onTransitionEnd={(e) => {
+                  // If background images take time to load, we can use a small delay
+                }}
+              >
+                <img 
+                  src={config.background_image_url} 
+                  className="hidden" 
+                  onLoad={() => setIsBgLoaded(true)} 
+                  alt=""
+                />
+              </div>
+            ) : null}
+          </div>
+        )}
 
-      <Navigation 
-        activeTab={activeTab} 
-        setActiveTab={handleTabChange} 
-        userRole={userRole}
-        onLogout={handleLogout}
-      />
+        <Navigation 
+          activeTab={activeTab} 
+          setActiveTab={handleTabChange} 
+          userRole={userRole}
+          onLogout={handleLogout}
+          userProfile={userProfile}
+          config={config}
+        />
 
-      <main className="flex-grow md:ml-16 p-4 md:p-12 pb-24 md:pb-12">
-        <div className="container mx-auto max-w-6xl">
-          {activeTab === 'home' && (
-            <div id="gallery-container">
-              <Gallery config={config} userRole={userRole} />
-            </div>
-          )}
-          {activeTab === 'timeline' && (
-            <div id="timeline-container">
-              <Timeline config={config} userRole={userRole} />
-            </div>
-          )}
-          {activeTab === 'management' && (userRole === 'admin' || isManagerAuthenticated) && (
-            <Management 
-              userRole={userRole} 
-              config={config} 
-              onConfigUpdate={fetchConfig} 
-              userId={session.user.id}
-            />
-          )}
-          {activeTab === 'management' && userRole === 'none' && !isManagerAuthenticated && (
-            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8 bg-white rounded-3xl shadow-xl border border-red-100">
-              <ShieldAlert className="w-16 h-16 text-red-500 mb-4" />
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">Yêu Cầu Quyền Truy Cập</h2>
-              <p className="text-gray-600 max-w-md mb-6">
-                Bạn cần có quyền <strong>VIP</strong> hoặc <strong>Admin</strong> để truy cập vào tính năng quản lý này. 
-                Vui lòng liên hệ quản trị viên để được cấp quyền.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <a 
-                  href="https://zalo.me/84866264751" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="px-8 py-3 bg-blue-500 text-white rounded-full font-bold hover:bg-blue-600 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2"
-                >
-                  Liên hệ qua Zalo
-                </a>
-                <button 
-                  onClick={() => setActiveTab('home')}
-                  className="px-8 py-3 bg-gray-100 text-gray-700 rounded-full font-bold hover:bg-gray-200 transition-all transform hover:scale-105 shadow-md"
-                >
-                  Quay Lại Trang Chủ
-                </button>
+        <main className="flex-grow md:ml-16 p-4 md:p-12 pb-32 md:pb-12">
+          <div className="container mx-auto max-w-6xl">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+              >
+                <Suspense fallback={
+                  activeTab === 'home' ? <GallerySkeleton /> : 
+                  activeTab === 'timeline' ? <TimelineSkeleton /> : 
+                  <div className="flex items-center justify-center p-12"><div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>
+                }>
+                  {activeTab === 'home' && (
+                    <div id="gallery-container" className="space-y-8">
+                       <Gallery config={config} userRole={userRole} />
+                    </div>
+                  )}
+                  {activeTab === 'timeline' && (
+                    <div id="timeline-container">
+                      <Timeline 
+                        config={config} 
+                        userRole={userRole} 
+                        onViewOnMap={(event) => {
+                          setSelectedMapEvent(event);
+                          setActiveTab('map');
+                        }}
+                      />
+                    </div>
+                  )}
+                  {activeTab === 'map' && (
+                    <div id="map-container" className="animate-fadeIn">
+                      <StoryMap 
+                        events={events} 
+                        config={config} 
+                        userId={session?.user?.id} 
+                        userProfile={userProfile} 
+                        externalSelectedEvent={selectedMapEvent}
+                        onExternalEventConsumed={() => setSelectedMapEvent(null)}
+                        setActiveTab={setActiveTab}
+                      />
+                    </div>
+                  )}
+                  {activeTab === 'management' && (userRole === 'admin' || isManagerAuthenticated) && (
+                    <Management 
+                      userRole={userRole} 
+                      config={config} 
+                      onConfigUpdate={handleConfigUpdate} 
+                      userId={session?.user?.id}
+                      userEmail={session?.user?.email}
+                      userProfile={userProfile}
+                      onProfileUpdate={handleConfigUpdate}
+                    />
+                  )}
+                  {activeTab === 'management' && userRole === 'none' && !isManagerAuthenticated && (
+                    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8 bg-white rounded-3xl shadow-xl border border-red-100">
+                      <ShieldAlert className="w-16 h-16 text-red-500 mb-4" />
+                      <h2 className="text-2xl font-bold text-gray-800 mb-2">Yêu Cầu Quyền Truy Cập</h2>
+                      <p className="text-gray-600 max-w-md mb-6">
+                        Bạn cần có quyền <strong>VIP</strong> hoặc <strong>Admin</strong> để truy cập vào tính năng quản lý này. 
+                        Vui lòng liên hệ quản trị viên để được cấp quyền.
+                      </p>
+                      <div className="flex flex-col sm:flex-row gap-4">
+                        <a 
+                          href="https://zalo.me/84866264751" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="px-8 py-3 bg-blue-500 text-white rounded-full font-bold hover:bg-blue-600 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2"
+                        >
+                          Liên hệ qua Zalo
+                        </a>
+                        <button 
+                          onClick={() => setActiveTab('home')}
+                          className="px-8 py-3 bg-gray-100 text-gray-700 rounded-full font-bold hover:bg-gray-200 transition-all transform hover:scale-105 shadow-md"
+                        >
+                          Quay Lại Trang Chủ
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </Suspense>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </main>
+
+        <Modal
+          isOpen={passcodeModalOpen}
+          onClose={() => setPasscodeModalOpen(false)}
+          title="Xác Thực Quản Trị"
+          progress={0}
+        >
+          <form onSubmit={handlePasscodeSubmit} className="space-y-6 text-center">
+            <div className="flex justify-center mb-2">
+              <div className="w-16 h-16 rounded-full bg-primary/5 flex items-center justify-center text-primary">
+                <Lock size={32} />
               </div>
             </div>
-          )}
-        </div>
-      </main>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-relaxed">
+              Vùng trời này dành cho những điều đặc biệt.<br/>Vui lòng nhập mật khẩu.
+            </p>
+            <input
+              type="password"
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value)}
+              placeholder="••••••"
+              className="w-full p-4 bg-white/50 border border-white/20 rounded-2xl outline-none focus:border-primary/50 transition-all text-center font-black tracking-[0.5em] text-lg"
+              autoFocus
+              required
+            />
+            <button type="submit" className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-primary transition-all duration-300">
+              Xác Nhận
+            </button>
+          </form>
+        </Modal>
 
-      <Modal
-        isOpen={passcodeModalOpen}
-        onClose={() => setPasscodeModalOpen(false)}
-        title="Xác Thực Quản Trị"
-        className="max-w-sm"
-      >
-        <form onSubmit={handlePasscodeSubmit} className="space-y-4 text-center">
-          <p className="text-sm text-gray-500 mb-4">
-            Vui lòng nhập mật khẩu quản lý để tiếp tục.
-          </p>
-          <input
-            type="password"
-            value={passcode}
-            onChange={(e) => setPasscode(e.target.value)}
-            placeholder="Mật khẩu"
-            className="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-primary/20 rounded-2xl outline-none text-center font-bold tracking-widest"
-            autoFocus
-          />
-          <button type="submit" className="w-full py-4 btn-primary-gradient rounded-2xl font-bold soft-shadow">
-            Xác Nhận
-          </button>
-        </form>
-      </Modal>
-    </div>
+        {/* Back to Top Button */}
+        <AnimatePresence>
+          {showBackToTop && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              className="fixed bottom-32 right-6 md:bottom-8 md:right-8 w-12 h-12 bg-white/80 backdrop-blur-md rounded-full shadow-xl border border-white/50 flex items-center justify-center text-primary z-[60] hover:scale-110 transition-transform"
+            >
+              <Plus className="rotate-45" size={24} />
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+    </PresenceProvider>
   );
 }

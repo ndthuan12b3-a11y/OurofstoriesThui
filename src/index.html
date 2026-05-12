@@ -4,6 +4,67 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Thúi House</title>
+    <script>
+      // Shim to prevent "Cannot set property fetch which has only a getter" error
+      (function() {
+        /**
+         * Some libraries try to polyfill 'fetch' by direct assignment (window.fetch = ...).
+         * In certain environments, 'fetch' is a read-only getter, causing a TypeError.
+         * This shim attempts to make it writable.
+         */
+        function makeWritable(target, prop) {
+          try {
+            let obj = target;
+            let descriptor;
+            while (obj && !descriptor) {
+              descriptor = Object.getOwnPropertyDescriptor(obj, prop);
+              if (!descriptor) obj = Object.getPrototypeOf(obj);
+            }
+
+            if (descriptor && descriptor.configurable) {
+              const original = target[prop];
+              let current = original;
+              Object.defineProperty(target, prop, {
+                get: function() { return current; },
+                set: function(v) { current = v; },
+                configurable: true,
+                enumerable: true
+              });
+            }
+          } catch (e) {
+            // Ignore errors
+          }
+        }
+
+        makeWritable(window, 'fetch');
+        makeWritable(window, 'Headers');
+        makeWritable(window, 'Request');
+        makeWritable(window, 'Response');
+        makeWritable(window, 'FormData');
+
+        if (typeof globalThis !== 'undefined') {
+          makeWritable(globalThis, 'fetch');
+          makeWritable(globalThis, 'Headers');
+          makeWritable(globalThis, 'Request');
+          makeWritable(globalThis, 'Response');
+          makeWritable(globalThis, 'FormData');
+        }
+        
+        // Also ensure 'global' exists for some older polyfills
+        if (typeof window !== 'undefined' && typeof window.global === 'undefined') {
+          window.global = window;
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link rel="icon" type="image/svg+xml" href="/icon-192.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#f43f5e" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Thúi House" />
+    <link rel="apple-touch-icon" href="/icon-512.png" />
   </head>
   <body>
     <div id="root"></div>

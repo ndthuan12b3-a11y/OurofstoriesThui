@@ -10,7 +10,14 @@ export const BackgroundMusicPlayer: React.FC<{ active: boolean }> = ({ active })
         // Chỉ gọi play nếu đang tạm dừng
         if (audioRef.current.paused) {
           audioRef.current.play().catch(error => {
-            if (error.name !== 'AbortError') {
+            const errorMessage = error.message || String(error);
+            if (
+              error.name !== 'AbortError' && 
+              error.name !== 'NotSupportedError' &&
+              !errorMessage.toLowerCase().includes('supported source') &&
+              !errorMessage.toLowerCase().includes('interrupted') &&
+              !errorMessage.toLowerCase().includes('pause()')
+            ) {
               console.error("BackgroundMusicPlayer play error:", error);
             }
           });
