@@ -226,7 +226,18 @@ interface StoryMapProps {
   events: Event[];
   config: AppConfig;
   userId?: string;
-  userProfile?: { id: string, avatar_url: string | null } | null;
+  userProfile?: { id: string, avatar_url: string | null, full_name?: string } | null;
+}
+
+interface TrackedUser {
+  user_id: string;
+  lat: number;
+  lng: number;
+  updated_at: string;
+  avatar_url: string | null;
+  name: string;
+  address: string;
+  isOnline: boolean;
 }
 
 const ZoomControl = () => {
@@ -339,46 +350,186 @@ const InvalidateSizeHandler = ({ trigger }: { trigger: any }) => {
 // Removed old MapController
 
 export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, userProfile }) => {
-  const { isOtherOnline: isOtherPresenceOnline, otherLocation: otherPresenceLocation } = usePresence();
+  const { isOtherOnline: isOtherPresenceOnline } = usePresence();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showList, setShowList] = useState(true);
   const [selectedItem, setSelectedItem] = useState<Event | null>(null);
   const [flyToCoords, setFlyToCoords] = useState<[number, number] | null>(null);
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
-  const [dbOtherLocation, setDbOtherLocation] = useState<[number, number] | null>(null);
-  const [userAddress, setUserAddress] = useState<string>('');
-  const [otherAddress, setOtherAddress] = useState<string>('');
-  const [otherLastUpdate, setOtherLastUpdate] = useState<string>('');
-  const [otherProfile, setOtherProfile] = useState<{ avatar_url: string | null, name?: string, id?: string } | null>(null);
+  const [trackedUsers, setTrackedUsers] = useState<Record<string, TrackedUser>>({});
   const [refocusKey, setRefocusKey] = useState(0);
-  const lastUpdateRef = React.useRef<number>(0);
-  const lastPosRef = React.useRef<[number, number] | null>(null);
+  const lastFetchedPosRef = React.useRef<Record<string, string>>({});
 
-  // Preference for presence location over DB location for real-time smoothness
-  const otherLocation = useMemo(() => {
-    return otherPresenceLocation || dbOtherLocation;
-  }, [otherPresenceLocation, dbOtherLocation]);
+  const sortedUsers = useMemo(() => {
+    return Object.values(trackedUsers).sort((a, b) => {
+      if (a.user_id === userId) return -1;
+      if (b.user_id === userId) return 1;
+      return 0;
+    });
+  }, [trackedUsers, userId]);
 
-  // Track accuracy state (optional, for visual debugging)
-  const [userAccuracy, setUserAccuracy] = useState<number>(0);
+  // Helper: Geocode with wrapper and rate limit protection
+  const getAddress = async (lat: number, lng: number, userId: string) => {
+    if (!lat || !lng) return;
+    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    if (lastFetchedPosRef.current[userId] === key) return;
+    
+    try {
+      lastFetchedPosRef.current[userId] = key;
+      const addr = await reverseGeocode(lat, lng);
+      setTrackedUsers(prev => ({
+        ...prev,
+        [userId]: { ...prev[userId], address: addr }
+      }));
+    } catch (e) {
+      setTrackedUsers(prev => ({
+        ...prev,
+        [userId]: { ...prev[userId], address: `${lat.toFixed(4)}, ${lng.toFixed(4)}` }
+      }));
+    }
+  };
 
   useEffect(() => {
-    const handleAccuracy = (e: any) => {
-      if (e.detail?.accuracy) setUserAccuracy(e.detail.accuracy);
-    };
-    window.addEventListener('location_accuracy', handleAccuracy);
-    return () => window.removeEventListener('location_accuracy', handleAccuracy);
-  }, []);
+    Object.values(trackedUsers).forEach(user => {
+      getAddress(user.lat, user.lng, user.user_id);
+    });
+  }, [JSON.stringify(Object.values(trackedUsers).map(u => `${u.lat},${u.lng}`))]);
 
-  const isOtherOnline = useMemo(() => {
-    if (isOtherPresenceOnline) return true;
-    if (!otherLastUpdate) return false;
-    const lastUpdate = new Date(otherLastUpdate).getTime();
-    return (Date.now() - lastUpdate) < 180000;
-  }, [otherLastUpdate, isOtherPresenceOnline]);
+  const formatTime = (isoString: string) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (diff < 60) return 'vừa xong';
+    if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`;
+    return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  // Real-time Location Sharing
+  React.useEffect(() => {
+    if (!userId || !supabase) return;
+
+    let profilesMap: Record<string, any> = {};
+
+    const fetchAllData = async () => {
+      try {
+        // 1. Fetch Profiles
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('user_id, avatar_url, full_name' as any);
+        
+        if (profiles) {
+          profiles.forEach(p => {
+            profilesMap[p.user_id] = p;
+          });
+        }
+
+        // 2. Fetch Locations
+        const { data: locations } = await supabase
+          .from('locations')
+          .select('*');
+        
+        if (locations) {
+          const newTrackedUsers: Record<string, TrackedUser> = {};
+          locations.forEach(loc => {
+            const profile = profilesMap[loc.user_id];
+            const isOnline = (Date.now() - new Date(loc.updated_at).getTime()) < 300000; // 5 mins
+            
+            let name = 'Người dùng';
+            if (loc.user_id === userId) {
+              name = 'Bạn';
+            } else if (profile?.full_name) {
+              name = profile.full_name;
+            } else {
+              // Fallback based on config if there are only 2 users
+              name = config.name_male === 'Anh' ? 'Người ấy' : 'Người ấy';
+            }
+
+            newTrackedUsers[loc.user_id] = {
+              user_id: loc.user_id,
+              lat: Number(loc.lat),
+              lng: Number(loc.lng),
+              updated_at: loc.updated_at,
+              avatar_url: profile?.avatar_url || null,
+              name: name,
+              address: '',
+              isOnline: isOnline
+            };
+          });
+          setTrackedUsers(newTrackedUsers);
+        }
+      } catch (err) {
+        console.error("Fetch initial data failed:", err);
+      }
+    };
+
+    fetchAllData();
+
+    // Setup Realtime Listener for locations
+    const channel = supabase
+      .channel('location-updates-all')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'locations' },
+        async (payload: any) => {
+          const loc = payload.new;
+          if (!loc) return;
+
+          const uid = loc.user_id;
+          const coords: [number, number] = [Number(loc.lat), Number(loc.lng)];
+          if (!isValidCoords(coords)) return;
+
+          // If tracking a new user, fetch their profile first
+          if (!profilesMap[uid]) {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('user_id, avatar_url, full_name' as any)
+              .eq('user_id', uid)
+              .maybeSingle();
+            if (profile) profilesMap[uid] = profile;
+          }
+
+          setTrackedUsers(prev => {
+            const profile = profilesMap[uid];
+            const name = uid === userId ? 'Bạn' : (profile?.full_name || 'Người ấy');
+            return {
+              ...prev,
+              [uid]: {
+                user_id: uid,
+                lat: coords[0],
+                lng: coords[1],
+                updated_at: loc.updated_at,
+                avatar_url: profile?.avatar_url || prev[uid]?.avatar_url || null,
+                name: name,
+                address: prev[uid]?.address || '',
+                isOnline: true
+              }
+            };
+          });
+        }
+      )
+      .subscribe();
+
+    const interval = setInterval(fetchAllData, 60000); // 1 min refresh fallback
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [userId]);
+
+  // Derived properties for UI
+  const userLocation = trackedUsers[userId!] ? [trackedUsers[userId!].lat, trackedUsers[userId!].lng] as [number, number] : null;
+  const otherUsers = sortedUsers.filter(u => u.user_id !== userId);
+  const mainOther = otherUsers[0] || null;
+  const otherLocation = mainOther ? [mainOther.lat, mainOther.lng] as [number, number] : null;
+  const isOtherOnline = mainOther?.isOnline || false;
+  const otherAddress = mainOther?.address || '';
+  const otherLastUpdate = mainOther?.updated_at || '';
+  const userAddress = trackedUsers[userId!]?.address || '';
+  const otherProfile = mainOther ? { avatar_url: mainOther.avatar_url, id: mainOther.user_id } : null;
 
   const distance = useMemo(() => {
-    if (!userLocation || !otherLocation || !isValidCoords(userLocation) || !isValidCoords(otherLocation)) return null;
+    if (!userLocation || !otherLocation) return null;
     const [lat1, lon1] = userLocation;
     const [lat2, lon2] = otherLocation;
     const R = 6371; // km
@@ -392,31 +543,6 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
     const d = R * c;
     return d < 1 ? `${(d * 1000).toFixed(0)}m` : `${d.toFixed(2)}km`;
   }, [userLocation, otherLocation]);
-
-  // Update other address when location changes
-  React.useEffect(() => {
-    if (otherLocation && isValidCoords(otherLocation)) {
-      getAddress(otherLocation[0], otherLocation[1], setOtherAddress);
-    }
-  }, [otherLocation]);
-
-  // ... (keeping other helper functions like getAddress)
-
-  // Helper: Geocode with wrapper and rate limit protection
-  const lastFetchedPosRef = React.useRef<string>('');
-  const getAddress = async (lat: number, lng: number, setter: (addr: string) => void) => {
-    if (!lat || !lng) return;
-    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
-    if (lastFetchedPosRef.current === key) return;
-    
-    try {
-      lastFetchedPosRef.current = key;
-      const addr = await reverseGeocode(lat, lng);
-      setter(addr);
-    } catch (e) {
-      setter(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-    }
-  };
 
   // Filter items that have location and valid coordinates
   const mapItems = useMemo(() => {
@@ -461,147 +587,6 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
       }
     };
   }, [isFullscreen]);
-
-  // Real-time Location Sharing
-  React.useEffect(() => {
-    if (!userId || !supabase) return;
-
-    // 1. Setup Realtime Listener for locations with local throttle
-    let throttleTimeout: any = null;
-    let pendingUpdate: any = null;
-
-    const channel = supabase
-      .channel('location-updates')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'locations' },
-        (payload: any) => {
-          const newLoc = payload.new;
-          if (!newLoc) return;
-
-          const applyUpdate = (loc: any) => {
-            const coords: [number, number] = [Number(loc.lat), Number(loc.lng)];
-            if (!isValidCoords(coords)) return;
-            
-            if (loc.user_id === userId) {
-              setUserLocation(coords);
-              getAddress(coords[0], coords[1], setUserAddress);
-              localStorage.setItem(`last_loc_${userId}`, JSON.stringify(coords));
-            } else {
-              setDbOtherLocation(coords);
-              setOtherLastUpdate(loc.updated_at);
-              localStorage.setItem(`last_loc_other`, JSON.stringify({ coords, updated_at: loc.updated_at, user_id: loc.user_id }));
-            }
-          };
-
-          if (!throttleTimeout) {
-            applyUpdate(newLoc);
-            throttleTimeout = setTimeout(() => {
-              throttleTimeout = null;
-              if (pendingUpdate) {
-                applyUpdate(pendingUpdate);
-                pendingUpdate = null;
-              }
-            }, 500); // 500ms throttle
-          } else {
-            pendingUpdate = newLoc;
-          }
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log("Joined location channel");
-        }
-      });
-
-    // 2. Fetch initial locations
-    const fetchLocations = async () => {
-      try {
-        console.log("Fetching locations for StoryMap...");
-        // Fetch MY location from DB
-        const { data: myData } = await supabase
-          .from('locations')
-          .select('*')
-          .eq('user_id', userId)
-          .maybeSingle();
-        
-    if (myData) {
-          const coords: [number, number] = [Number(myData.lat), Number(myData.lng)];
-          if (isValidCoords(coords)) {
-            setUserLocation(coords);
-            getAddress(coords[0], coords[1], setUserAddress);
-            localStorage.setItem(`last_loc_${userId}`, JSON.stringify(coords));
-          }
-        }
-
-        // Fetch OTHER person location from DB
-        const { data: others, error: fetchError } = await supabase
-          .from('locations')
-          .select('*')
-          .neq('user_id', userId)
-          .order('updated_at', { ascending: false })
-          .limit(1);
-        
-        if (fetchError) {
-          console.error("Fetch others failed:", fetchError);
-        }
-
-        if (others && others.length > 0) {
-          const coords: [number, number] = [Number(others[0].lat), Number(others[0].lng)];
-          if (isValidCoords(coords)) {
-            console.log("Found other location:", coords);
-            setDbOtherLocation(coords);
-            setOtherLastUpdate(others[0].updated_at || '');
-            localStorage.setItem(`last_loc_other`, JSON.stringify({ coords, updated_at: others[0].updated_at, user_id: others[0].user_id }));
-
-            // Fetch profile if not already set or changed
-            if (!otherProfile || otherProfile.id !== others[0].user_id) {
-              const { data: profile } = await supabase
-                .from('profiles')
-                .select('avatar_url')
-                .eq('user_id', others[0].user_id)
-                .maybeSingle();
-              
-              if (profile) {
-                setOtherProfile({ avatar_url: profile.avatar_url, id: others[0].user_id });
-              }
-            }
-          }
-        } else {
-          console.log("No other locations found in DB");
-        }
-      } catch (err) {
-        console.error("Fetch locations failed critical:", err);
-      }
-    };
-    fetchLocations();
-
-    // 3. Re-fetch periodically or when user comes back
-    const interval = setInterval(fetchLocations, 30000); // 30s polling fallback
-
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        fetchLocations();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [userId, isOtherPresenceOnline, refocusKey]);
-
-  const formatTime = (isoString: string) => {
-    if (!isoString) return '';
-    const date = new Date(isoString);
-    const now = new Date();
-    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
-    if (diff < 60) return 'vừa xong';
-    if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`;
-    return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-  };
 
   // Optimized Select Handlers
   const handleSelectFromList = React.useCallback((item: Event) => {
@@ -653,48 +638,32 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
               Trực tiếp
             </p>
             
-            {userLocation && (
+            {sortedUsers.map(user => (
               <motion.button
+                key={user.user_id}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => handleSelectLiveLocation(userLocation, 'Bạn')}
-                className="w-full p-3 rounded-2xl bg-white/60 hover:bg-white/80 border border-white/50 flex items-center gap-3 transition-all"
+                onClick={() => handleSelectLiveLocation([user.lat, user.lng], user.name)}
+                className={`w-full p-3 rounded-2xl border transition-all flex items-center gap-3 ${user.isOnline ? 'bg-rose-50/50 border-rose-100' : 'bg-white/60 border-white/50'}`}
               >
-                <div className="w-10 h-10 rounded-xl overflow-hidden shadow-sm border-2 border-white bg-rose-50">
-                  <img src={userProfile?.avatar_url || ''} className="w-full h-full object-cover" alt="Me" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-[11px] font-bold text-gray-800">Bạn</h4>
-                  <p className="text-[9px] text-gray-500 truncate">{userAddress || 'Đang xác định vị trí...'}</p>
-                </div>
-              </motion.button>
-            )}
-
-            {otherLocation && (
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => handleSelectLiveLocation(otherLocation, 'Người ấy')}
-                className={`w-full p-3 rounded-2xl border transition-all flex items-center gap-3 ${isOtherOnline ? 'bg-rose-50/50 border-rose-100' : 'bg-white/60 border-white/50'}`}
-              >
-                <div className={`w-10 h-10 rounded-xl overflow-hidden shadow-sm border-2 ${isOtherOnline ? 'border-rose-400' : 'border-white'} bg-gray-50`}>
-                  <img src={otherProfile?.avatar_url || config.avatar_url || ''} className={`w-full h-full object-cover ${isOtherOnline ? '' : 'grayscale'}`} alt="Other" />
+                <div className={`w-10 h-10 rounded-xl overflow-hidden shadow-sm border-2 ${user.isOnline ? 'border-rose-400' : 'border-white'} bg-gray-50`}>
+                  <img src={user.avatar_url || 'https://placehold.co/100x100?text=' + user.name.charAt(0)} className={`w-full h-full object-cover ${user.isOnline ? '' : 'grayscale'}`} alt={user.name} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <h4 className="text-[11px] font-bold text-gray-800 flex items-center gap-1">
-                    Người ấy
-                    {isOtherOnline && <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>}
+                    {user.name}
+                    {user.isOnline && <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>}
                   </h4>
-                  <p className="text-[9px] text-gray-500 truncate">{otherAddress || 'Đang xác định vị trí...'}</p>
-                  {distance && isOtherOnline && (
+                  <p className="text-[9px] text-gray-500 truncate">{user.address || 'Đang xác định vị trí...'}</p>
+                  {user.user_id !== userId && distance && user.isOnline && (
                     <p className="text-[10px] font-bold text-rose-500 flex items-center gap-1 mt-0.5">
                       <NavIcon size={10} className="rotate-45" /> Cách bạn {distance}
                     </p>
                   )}
-                  {otherLastUpdate && <p className="text-[8px] text-gray-400 mt-0.5">{formatTime(otherLastUpdate)}</p>}
+                  {user.updated_at && <p className="text-[8px] text-gray-400 mt-0.5">{formatTime(user.updated_at)}</p>}
                 </div>
               </motion.button>
-            )}
+            ))}
           </div>
 
           {/* Memories Section */}
@@ -791,7 +760,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
           preferCanvas={true}
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            attribution="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors"
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
@@ -837,42 +806,17 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
             refocusKey={refocusKey}
           />
 
-          {/* User Accuracy Circle */}
-          {userLocation && isValidCoords(userLocation) && userAccuracy > 0 && (
-            <Circle 
-              center={userLocation}
-              radius={userAccuracy}
-              pathOptions={{ 
-                fillColor: '#3b82f6', 
-                fillOpacity: 0.1, 
-                color: '#3b82f6', 
-                weight: 1, 
-                dashArray: '5, 5' 
-              }}
+          {/* Render markers for all tracked users */}
+          {Object.values(trackedUsers).map(user => (
+            <CustomMarker
+              key={user.user_id}
+              position={[user.lat, user.lng]}
+              imageUrl={user.avatar_url || 'https://placehold.co/100x100?text=' + user.name.charAt(0)}
+              isOffline={!user.isOnline}
+              label={user.name}
+              color={user.user_id === userId ? 'rose' : 'blue'}
             />
-          )}
-
-          {/* Live Markers */}
-          {/* Hiển thị Marker khi và chỉ khi tọa độ và ID người dùng hợp lệ */}
-          {userLocation && isValidCoords(userLocation) && (
-            <CustomMarker 
-              position={userLocation} 
-              imageUrl={userProfile?.avatar_url || 'https://placehold.co/100x100?text=Me'} 
-              isOffline={false}
-              label={`Bạn ❤️`}
-              color="blue"
-            />
-          )}
-          
-          {otherLocation && isValidCoords(otherLocation) && otherProfile?.id && (
-            <CustomMarker 
-              position={otherLocation} 
-              imageUrl={otherProfile?.avatar_url || config.avatar_url || 'https://placehold.co/100x100?text=❤️'} 
-              isOffline={!isOtherOnline}
-              label={isOtherOnline ? `Người ấy đang online ❤️` : `Vị trí cuối của em 🌙`}
-              color="rose"
-            />
-          )}
+          ))}
 
           <ZoomControl />
         </MapContainer>

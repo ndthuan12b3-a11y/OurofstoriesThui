@@ -8,6 +8,7 @@ import { UserRole, AppConfig } from './types';
 interface UserProfile {
   id: string;
   avatar_url: string | null;
+  full_name?: string;
 }
 
 // Optimized Navigation with memo
@@ -199,7 +200,11 @@ export default function App() {
       }
       
       if (data) {
-        setUserProfile({ id: data.user_id || userId, avatar_url: data.avatar_url });
+        setUserProfile({ 
+          id: data.user_id || userId, 
+          avatar_url: data.avatar_url, 
+          full_name: (data as any).full_name 
+        });
       } else {
         setUserProfile({ id: userId, avatar_url: null });
       }
