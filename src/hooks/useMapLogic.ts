@@ -49,7 +49,13 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
         
         if (locations) {
           const newTrackedUsers: Record<string, TrackedUser> = {};
-          locations.forEach(loc => {
+          const validLocations = locations.filter(loc => {
+            const lat = Number(loc.lat);
+            const lng = Number(loc.lng);
+            return !isNaN(lat) && !isNaN(lng) && isFinite(lat) && isFinite(lng);
+          });
+
+          validLocations.forEach(loc => {
             const profile = profilesMap[loc.user_id];
             let dateStr = loc.updated_at;
             if (dateStr && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
@@ -101,7 +107,7 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
       .subscribe();
 
     // Presence Listener (much faster than DB updates)
-    const presenceChannel = supabase.channel('presence-sync', {
+    const presenceChannel = supabase.channel('online-users', {
       config: { presence: { key: userId } }
     });
 
@@ -109,15 +115,15 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
       .on('presence', { event: 'sync' }, () => {
         const state = presenceChannel.presenceState();
         Object.entries(state).forEach(([uid, presences]) => {
-          if (uid === userId) return; // Don't track ourselves via presence to avoid loops
-          const latest = (presences as any[])[presences.length - 1];
+          const presenceList = presences as any[];
+          const latest = presenceList[presenceList.length - 1];
           if (latest && latest.lat && latest.lng) {
             processUpdate({
               user_id: uid,
               lat: latest.lat,
               lng: latest.lng,
               updated_at: latest.online_at || new Date().toISOString(),
-              address: null // Presence doesn't usually have address, keep old one
+              address: latest.address || null 
             });
           }
         });

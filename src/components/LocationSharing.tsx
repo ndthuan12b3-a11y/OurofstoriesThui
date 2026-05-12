@@ -2,6 +2,7 @@ import React from 'react';
 import { supabase } from '../lib/supabase';
 import { showNotification } from '../lib/notifications';
 import { usePresence } from '../lib/PresenceContext';
+import { reverseGeocode } from '../lib/geocoding';
 
 interface LocationSharingProps {
   userId: string;
@@ -9,6 +10,8 @@ interface LocationSharingProps {
 
 export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
   const lastUpdateRef = React.useRef<number>(0);
+  const lastGeocodeRef = React.useRef<number>(0);
+  const lastAddrRef = React.useRef<string>("");
   const lastPosRef = React.useRef<[number, number] | null>(null);
   const { updateLocation: updatePresenceLocation } = usePresence();
 
@@ -18,35 +21,53 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
     const updateLocationInDB = async (lat: number, lng: number) => {
       if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
       
-      // Real-time presence update (high frequency, no DB cost)
-      updatePresenceLocation(lat, lng);
+      const now = Date.now();
+      const movedFar = lastPosRef.current && 
+        (Math.abs(lat - lastPosRef.current[0]) > 0.0003 || Math.abs(lng - lastPosRef.current[1]) > 0.0003);
 
-      // Kiểm tra kết nối mạng trước khi gửi dữ liệu vào DB (lower frequency)
-      if (!navigator.onLine) {
-        showNotification('Mất kết nối mạng, đang chờ cập nhật vị trí...', true);
-        return;
+      // 1. Cập nhật toạ độ lên Presence NGAY LẬP TỨC
+      updatePresenceLocation(lat, lng, lastAddrRef.current);
+
+      // 2. Chạy tìm địa chỉ ngầm
+      const isFirstRun = !lastPosRef.current;
+      if (isFirstRun || now - lastGeocodeRef.current > 30000 || movedFar) {
+        lastGeocodeRef.current = now;
+        reverseGeocode(lat, lng).then(newAddr => {
+          if (newAddr && newAddr !== lastAddrRef.current) {
+            lastAddrRef.current = newAddr;
+            // Cập nhật Presence ngay cho mọi người thấy
+            updatePresenceLocation(lat, lng, newAddr);
+            
+            // Đồng bộ luôn vào DB để lưu trữ lâu dài
+            if (navigator.onLine) {
+              fetch('/api/location/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId, lat, lng, address: newAddr })
+              }).catch(() => {});
+            }
+          }
+        }).catch(() => {});
       }
-      
-      try {
-        // Cache locally for the UI to use instantly
-        localStorage.setItem(`last_loc_${userId}`, JSON.stringify([lat, lng]));
 
-        const response = await fetch('/api/location/update', {
+      // 3. Database Sync (Throttled)
+      if (!navigator.onLine) return;
+      if (now - lastUpdateRef.current > 10000 || movedFar || !lastPosRef.current) {
+        lastUpdateRef.current = now;
+        lastPosRef.current = [lat, lng];
+        const body = { user_id: userId, lat, lng, address: lastAddrRef.current || undefined };
+        
+        fetch('/api/location/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: userId,
-            lat: lat,
-            lng: lng
-          })
+          body: JSON.stringify(body)
+        }).catch(() => {
+          // Fallback direct
+          supabase.from('locations').upsert({
+            user_id: userId, lat, lng, address: lastAddrRef.current || null,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'user_id' });
         });
-
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          console.error("API update error:", errData);
-        }
-      } catch (err) {
-        console.error("Location update API failure:", err);
       }
     };
 
@@ -90,7 +111,7 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
               updateLocationInDB(latitude, longitude);
             } else {
               // Vẫn cập nhật Real-time Presence để mượt mà nhất có thể
-              updatePresenceLocation(latitude, longitude);
+              updatePresenceLocation(latitude, longitude, lastAddrRef.current);
             }
 
             // Sync accuracy with UI
@@ -99,7 +120,7 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
           (error) => {
             console.warn("Geolocation watch error:", error);
           },
-          { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
         );
       }
     };

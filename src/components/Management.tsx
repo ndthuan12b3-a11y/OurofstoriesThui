@@ -5,7 +5,7 @@ import { UserRole, AppConfig } from '../types';
 import { 
   Plus, Edit, Trash2, Search, Save, Calendar, 
   Music, Image as ImageIcon, History, Users, ShieldCheck, Settings,
-  Volume2, VolumeX, BookOpen, Camera, RefreshCw, Sparkles, Heart
+  Volume2, VolumeX, BookOpen, Camera, RefreshCw, Sparkles, Heart, ShieldAlert
 } from 'lucide-react';
 import { showNotification } from '../lib/notifications';
 import { Modal } from './Modal';
@@ -105,7 +105,7 @@ const PRIMARY_CONFIG_ID = '6857068c-7cc5-45ce-8099-23f0e3264251';
 export const Management: React.FC<ManagementProps> = ({ 
   userRole, config, onConfigUpdate, userId, userEmail, userProfile, onProfileUpdate 
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'config' | 'events' | 'gallery' | 'music' | 'stories' | 'users'>('dashboard');
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'config' | 'events' | 'gallery' | 'music' | 'stories' | 'users' | 'traccar'>('dashboard');
   
   // Core Logic helpers
   const HAS_VIP_ACCESS = () => userRole === 'vip' || userRole === 'admin';
@@ -115,6 +115,8 @@ export const Management: React.FC<ManagementProps> = ({
   const [music, setMusic] = useState<any[]>([]);
   const [stories, setStories] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [traccarLogs, setTraccarLogs] = useState<any[]>([]);
+  const [isCleaning, setIsCleaning] = useState(false);
   const [stats, setStats] = useState({
     totalEvents: 0,
     totalPhotos: 0,
@@ -424,20 +426,13 @@ export const Management: React.FC<ManagementProps> = ({
         if (data) setStories(data);
       }
       
-      if (activeSubTab === 'users' && userRole === 'admin') {
-        const { data: usersData, error: usersError } = await supabase.rpc('get_all_users') as any;
-        const { data: rolesData, error: rolesError } = await supabase.from('user_roles').select('*') as any;
-        
-        if (usersError) throw usersError;
-        if (rolesError) throw rolesError;
-
-        if (usersData && rolesData) {
-          const merged = usersData.map((u: any) => ({
-            ...u,
-            role: rolesData.find((r: any) => r.user_id === u.id)?.role || 'none'
-          }));
-          setUsers(merged);
-        }
+      if (activeSubTab === 'traccar') {
+        const { data } = await supabase
+          .from('location_history')
+          .select('*')
+          .order('timestamp', { ascending: false })
+          .limit(20);
+        if (data) setTraccarLogs(data);
       }
     } catch (error: any) {
       console.error("Lỗi khi tải dữ liệu:", error);
@@ -563,6 +558,56 @@ export const Management: React.FC<ManagementProps> = ({
       showNotification("Lỗi khi thực hiện xóa!", true);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCleanupHistory = async () => {
+    if (!confirm("Hệ thống sẽ dọn dẹp các vị trí trùng lặp (di chuyển dưới 5m) trong lịch sử. Bạn có chắc chắn?")) return;
+    setIsCleaning(true);
+    try {
+      // Fetch all history for the user
+      const { data: history } = await supabase
+        .from('location_history')
+        .select('*')
+        .order('user_id', { ascending: true })
+        .order('timestamp', { ascending: true });
+      
+      if (!history || history.length < 2) {
+        showNotification("Không tìm thấy dữ liệu cần dọn dẹp.");
+        return;
+      }
+
+      const toDelete: string[] = [];
+      let last: any = null;
+
+      history.forEach(curr => {
+        if (last && last.user_id === curr.user_id) {
+          const dLat = Math.abs(Number(curr.lat) - Number(last.lat));
+          const dLng = Math.abs(Number(curr.lng) - Number(last.lng));
+          if (dLat < 0.00005 && dLng < 0.00005) {
+            toDelete.push(curr.id);
+            return; // Don't update 'last' to catch many close entries in a row
+          }
+        }
+        last = curr;
+      });
+
+      if (toDelete.length > 0) {
+        // Supabase doesn't support massive batch deletes by array in simple way easily
+        // We'll delete in chunks of 50
+        for (let i = 0; i < toDelete.length; i += 50) {
+          const chunk = toDelete.slice(i, i + 50);
+          await supabase.from('location_history').delete().in('id', chunk);
+        }
+        showNotification(`Đã dọn dẹp ${toDelete.length} vị trí trùng lặp!`);
+      } else {
+        showNotification("Không phát hiện vị trí trùng lặp nào.");
+      }
+      fetchData();
+    } catch (err) {
+      showNotification("Lỗi khi dọn dẹp lịch sử.", true);
+    } finally {
+      setIsCleaning(false);
     }
   };
 

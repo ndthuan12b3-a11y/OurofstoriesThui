@@ -7,7 +7,7 @@ interface PresenceState {
   isOtherOnline: boolean;
   otherLocation: [number, number] | null;
   sendPing: (message: string) => void;
-  updateLocation: (lat: number, lng: number) => void;
+  updateLocation: (lat: number, lng: number, address?: string) => void;
 }
 
 const PresenceContext = createContext<PresenceState | undefined>(undefined);
@@ -154,13 +154,15 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
     }
   };
 
-  const updateLocation = (lat: number, lng: number) => {
+  const updateLocation = (lat: number, lng: number, address?: string) => {
     if (channelRef.current) {
-      channelRef.current.track({ 
+      const data: any = { 
         lat, 
         lng, 
         online_at: new Date().toISOString() 
-      });
+      };
+      if (address) data.address = address;
+      channelRef.current.track(data);
     }
   };
 

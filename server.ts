@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import { createClient } from "@supabase/supabase-js";
 import path from "path";
 import dotenv from "dotenv";
+import axios from "axios";
 
 // Load environment variables
 dotenv.config();
@@ -15,6 +16,9 @@ if (!supabaseUrl || !supabaseServiceKey) {
 }
 
 const supabase = createClient(supabaseUrl || '', supabaseServiceKey || '');
+
+// Helper to check if string is a valid UUID
+const isUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id));
 
 async function startServer() {
   const app = express();
@@ -33,15 +37,16 @@ async function startServer() {
     // Combine query parameters (GET) and body data (POST)
     const data = { ...req.query, ...req.body };
     
-    // Extract core fields as requested by the user
-    // id (Device Identifier) -> mapping to user_id
-    // lat (Latitude) -> mapping to lat
-    // lon (Longitude) -> mapping to lng
-    // timestamp -> mapping to updated_at
-    const { id, lat, lon, timestamp } = data;
+    // Extract core fields with multiple possible mappings for different Traccar clients
+    const id = data.id || data.uniqueId || data.deviceId || data.deviceid;
+    const lat = data.lat || data.latitude;
+    const lon = data.lon || data.longitude || data.lng;
+    const timestamp = data.timestamp || data.time;
+
+    console.log(`[Traccar Incoming] Raw: ${JSON.stringify(data)}`);
 
     if (!id || !lat || !lon) {
-      // Return 200 OK even if missing fields to satisfy Traccar client and prevent retry loops
+      console.warn("[Traccar API] Missing core parameters (id, lat, lon)");
       return res.status(200).send("OK: Missing parameters");
     }
 
@@ -71,67 +76,161 @@ async function startServer() {
 
       console.log(`[Traccar API] ${new Date().toISOString()} - Device ID: ${id}, Position: ${latitude}, ${longitude}`);
 
-      // Perform primary upsert into 'locations' table IMMEDIATELY for speed
-      const { error: upsertError } = await supabase
-        .from('locations')
-        .upsert({
+      // Perform primary upsert into 'locations' table IMMEDIATELY for speed (ONLY if UUID)
+      if (isUUID(id)) {
+        const upsertData: any = {
           user_id: id,
           lat: latitude,
           lng: longitude,
           updated_at: updatedAt,
-        }, { onConflict: 'user_id' });
+        };
 
-      if (upsertError) {
-        console.error("[Traccar API] Supabase Upsert Error:", upsertError.message);
+        const { error: upsertError } = await supabase
+          .from('locations')
+          .upsert(upsertData, { onConflict: 'user_id' });
+
+        if (upsertError) {
+          console.error("[Traccar API] locations table error:", upsertError.message);
+        }
       }
 
-      // Start background geocoding WITHOUT awaiting it to not block the response
+        // 1. Check movement before saving to history (Use string ID if UUID not required for history)
+        const { data: lastHistory } = await supabase
+          .from('location_history')
+          .select('id, lat, lng, timestamp')
+          .filter('user_id', 'eq', id) // Filter works with strings too
+          .order('timestamp', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+      let shouldInsertHistory = true;
+      let historyIdToUpdate = null;
+
+      if (lastHistory) {
+        const dLat = Math.abs(latitude - Number(lastHistory.lat));
+        const dLng = Math.abs(longitude - Number(lastHistory.lng));
+        
+        // If moved less than ~10m (0.0001 degrees)
+        if (dLat < 0.0001 && dLng < 0.0001) {
+          shouldInsertHistory = false;
+          historyIdToUpdate = lastHistory.id;
+        }
+      }
+
+      if (shouldInsertHistory) {
+        try {
+          await supabase
+            .from('location_history')
+            .insert({
+              user_id: id,
+              lat: latitude,
+              lng: longitude,
+              timestamp: updatedAt,
+            });
+        } catch (hErr) {}
+      } else if (historyIdToUpdate) {
+        // Just update existing history timestamp to extend stay duration
+        try {
+          await supabase
+            .from('location_history')
+            .update({ timestamp: updatedAt })
+            .eq('id', historyIdToUpdate);
+        } catch (upErr) {}
+      }
+
+      // Start background geocoding WITHOUT awaiting it
       (async () => {
         try {
-          // Optimization: Fetch current address to compare
+          // 1. GLOBAL Address Cache: Find ANY nearby record (any user) with a detailed address
+          // Search within 25m radius for cache hits
+          const { data: nearbyCache } = await supabase
+            .from('location_history')
+            .select('address')
+            .not('address', 'is', null)
+            .gte('lat', latitude - 0.00025)
+            .lte('lat', latitude + 0.00025)
+            .gte('lng', longitude - 0.00025)
+            .lte('lng', longitude + 0.00025)
+            .order('timestamp', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (nearbyCache && (nearbyCache as any).address) {
+            const cachedAddr = (nearbyCache as any).address;
+            console.log(`[Traccar API] Cache Hit: ${cachedAddr}`);
+            if (isUUID(id)) {
+              await supabase.from('locations').update({ address: cachedAddr }).eq('user_id', id);
+            }
+            
+            // Tag current history too
+            if (shouldInsertHistory) {
+               await supabase.from('location_history').update({ address: cachedAddr }).eq('user_id', id).eq('timestamp', updatedAt);
+            } else if (historyIdToUpdate) {
+               await supabase.from('location_history').update({ address: cachedAddr }).eq('id', historyIdToUpdate);
+            }
+            return;
+          }
+
+          // 2. Fetch current status to avoid redundant geocoding if tiny move
           const { data: currentLoc } = await supabase
             .from('locations')
-            .select('lat, lng, address')
+            .select('*')
             .eq('user_id', id)
             .maybeSingle();
 
-          // If current address exists and movement is tiny (< 5m), skip geocoding
-          if (currentLoc?.address && currentLoc.lat && currentLoc.lng) {
+          if (currentLoc && (currentLoc as any).address && currentLoc.lat && currentLoc.lng) {
             const dLat = latitude - Number(currentLoc.lat);
             const dLng = longitude - Number(currentLoc.lng);
             const distSq = (dLat * dLat) + (dLng * dLng);
-            if (distSq < 0.0000000002) { // approx 5m squared
-              return;
-            }
+            if (distSq < 0.0000000002) return; 
           }
 
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+          const response = await axios.get(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&accept-language=vi&email=AlanwalkerT2002@gmail.com`,
             {
-              headers: { 'User-Agent': 'Traccar-Optimizer-App' }
+              headers: { 'User-Agent': `Location-Tracker-App-AI-Studio-${id}` },
+              timeout: 5000
             }
           );
-          if (response.ok) {
-            const geoData = await response.json() as any;
+          
+          if (response.status === 200) {
+            const geoData = response.data;
             const addr = geoData.address || {};
             
-            // Compose a short address: [number] [road]
-            // Favor short components for brevity
-            const shortAddress = [
-              addr.house_number || addr.building,
-              addr.road || addr.pedestrian || addr.suburb || addr.neighbourhood
-            ].filter(Boolean).join(" ");
-
-            const address = shortAddress || geoData.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+            const addressParts = [];
+            // Inclusive detection for house numbers and streets
+            const house = addr.house_number || addr.building || addr.house_name || addr.office || addr.apartment || addr.flat || addr.street_number || addr.unit || addr.floor;
+            const street = addr.road || addr.pedestrian || addr.path || addr.street || addr.lane || addr.square || addr.place || addr.terrace;
+            const block = addr.suburb || addr.neighbourhood || addr.village || addr.quarter || addr.hamlet || addr.allotments || addr.city_district;
             
-            // Update address in background
-            await supabase
-              .from('locations')
-              .update({ address: address })
-              .eq('user_id', id);
+            if (house) {
+              const formattedHouse = /^\d/.test(house) && !house.toLowerCase().includes('số') ? `Số ${house}` : house;
+              addressParts.push(formattedHouse);
+            }
+            if (street) addressParts.push(street);
+            if (addressParts.length < 2 && block) addressParts.push(block);
+
+            const display = geoData.display_name ? geoData.display_name.split(',').slice(0, 3).map((s: string) => s.trim()).join(', ') : "";
+            const finalAddress = addressParts.join(", ") || display || "Vị trí chưa xác định";
+            
+            if (finalAddress) {
+              console.log(`[Traccar API] Detailed Address: ${finalAddress}`);
+              // Sync latest location
+              if (isUUID(id)) {
+                await supabase.from('locations').update({ address: finalAddress }).eq('user_id', id);
+              }
+              
+              // Sync history (including recent ones without address)
+              await supabase.from('location_history')
+                .update({ address: finalAddress })
+                .eq('user_id', id)
+                .is('address', null)
+                .gte('lat', latitude - 0.0005)
+                .lte('lat', latitude + 0.0005);
+            }
           }
         } catch (geoErr) {
-          console.warn("[Traccar API] Background geocoding failed:", geoErr);
+          console.warn("[Traccar API] Geocoding background error:", (geoErr as Error).message);
         }
       })();
 
@@ -149,55 +248,189 @@ async function startServer() {
    */
   app.post("/api/location/update", express.json(), async (req, res) => {
     try {
-      const { user_id, lat, lng } = req.body;
-      if (!user_id || lat === undefined || lng === undefined) {
-        return res.status(400).json({ error: "Missing parameters" });
+      if (!req.body) {
+        console.warn("[API Update] Received empty body");
+        return res.status(400).json({ error: "Empty body" });
       }
 
-      // 1. Update coordinates immediately
-      const { error: upsertError } = await supabase
-        .from('locations')
-        .upsert({
+      const { user_id, lat, lng, address: clientAddress } = req.body;
+      console.log(`[API Update] Request from: ${user_id}, pos: ${lat}, ${lng}`);
+
+      if (!user_id || lat === undefined || lng === undefined) {
+        return res.status(400).json({ error: "Missing parameters", received: Object.keys(req.body) });
+      }
+
+      const latitude = Number(lat);
+      const longitude = Number(lng);
+
+      if (isNaN(latitude) || isNaN(longitude)) {
+        return res.status(400).json({ error: "Invalid coordinates", lat, lng });
+      }
+
+      // 1. Fetch current to see if we really need to update everything
+      let current: any = null;
+      let hasAddressColumn = true;
+
+      // Try selecting with address first (detect column)
+      const { data: dataWithAddr, error: selectError } = await supabase.from('locations').select('lat, lng, address').eq('user_id', user_id).maybeSingle();
+      
+      if (selectError) {
+        if (selectError.code === '42703' || selectError.message?.includes('address')) {
+          hasAddressColumn = false;
+          const { data: dataNoAddr, error: selectErrorNoAddr } = await supabase.from('locations').select('lat, lng').eq('user_id', user_id).maybeSingle();
+          if (!selectErrorNoAddr) current = dataNoAddr;
+        } else if (selectError.code === '42P01') {
+          console.error("[API Update] Table 'locations' does not exist. Please create it in Supabase.");
+        } else {
+          console.error("[API Update] Supabase Select Error:", selectError.message);
+        }
+      } else {
+        current = dataWithAddr;
+      }
+
+      const dLat = Math.abs(latitude - (current?.lat || 0));
+      const dLng = Math.abs(longitude - (current?.lng || 0));
+      const moved = dLat > 0.00001 || dLng > 0.00001; 
+
+      // 2. Update coordinates and maybe address (ONLY if UUID)
+      if (isUUID(user_id)) {
+        const upsertData: any = {
           user_id,
-          lat,
-          lng,
+          lat: latitude,
+          lng: longitude,
           updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
+        };
+        
+        if (hasAddressColumn && clientAddress && clientAddress.length > 5) {
+          upsertData.address = clientAddress;
+        }
 
-      if (upsertError) throw upsertError;
+        const { error: upsertError } = await supabase
+          .from('locations')
+          .upsert(upsertData, { onConflict: 'user_id' });
 
-      // 2. Respond immediately
+        if (upsertError) {
+          if (hasAddressColumn && (upsertError.code === '42703' || upsertError.message?.includes('address'))) {
+             delete upsertData.address;
+             await supabase.from('locations').upsert(upsertData, { onConflict: 'user_id' });
+          } else {
+            console.error("[API Update] Supabase Upsert Error:", upsertError.message);
+          }
+        }
+      }
+
+      // 3. Save to history or update timestamp if standing still
+      const { data: lastH } = await supabase
+        .from('location_history')
+        .select('id, lat, lng, timestamp')
+        .filter('user_id', 'eq', user_id)
+        .order('timestamp', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let shouldInsertH = true;
+      let hIdToUpdate = null;
+
+      if (lastH) {
+        const dLatH = Math.abs(latitude - Number(lastH.lat));
+        const dLngH = Math.abs(longitude - Number(lastH.lng));
+        if (dLatH < 0.0001 && dLngH < 0.0001) {
+          shouldInsertH = false;
+          hIdToUpdate = lastH.id;
+        }
+      }
+
+      if (shouldInsertH) {
+        try {
+          await supabase.from('location_history').insert({
+            user_id,
+            lat: latitude,
+            lng: longitude,
+            address: clientAddress || null,
+            timestamp: new Date().toISOString()
+          });
+        } catch (hErr) {}
+      } else if (hIdToUpdate) {
+        try {
+          await supabase.from('location_history').update({ timestamp: new Date().toISOString() }).eq('id', hIdToUpdate);
+        } catch (upErr) {}
+      }
+
+      // 3. Respond immediately
       res.json({ status: "ok" });
 
-      // 3. Background Geocoding
-      (async () => {
-        try {
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
-            { headers: { 'User-Agent': 'Traccar-Optimizer-App' } }
-          );
-          if (response.ok) {
-            const geoData = await response.json() as any;
-            const addr = geoData.address || {};
-            
-            // Compose a short address: [number] [road]
-            const shortAddress = [
-              addr.house_number || addr.building,
-              addr.road || addr.pedestrian || addr.suburb || addr.neighbourhood
-            ].filter(Boolean).join(" ");
+      // 4. Background Geocoding (only if no clientAddress provided OR moved significantly)
+      if (!clientAddress || moved) {
+        (async () => {
+          try {
+            // Check cache first
+            const { data: nearby } = await supabase
+              .from('location_history')
+              .select('address')
+              .not('address', 'is', null)
+              .gte('lat', latitude - 0.0001)
+              .lte('lat', latitude + 0.0001)
+              .gte('lng', longitude - 0.0001)
+              .lte('lng', longitude + 0.0001)
+              .limit(1)
+              .maybeSingle();
 
-            const address = shortAddress || geoData.display_name || "";
-            if (address) {
-              await supabase.from('locations').update({ address }).eq('user_id', user_id);
+            if (nearby && (nearby as any).address) {
+              const addr = (nearby as any).address;
+              await supabase.from('locations').update({ address: addr }).eq('user_id', user_id);
+              return;
             }
+
+            const response = await axios.get(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&accept-language=vi&email=AlanwalkerT2002@gmail.com`,
+              { 
+                headers: { 'User-Agent': `Location-Tracker-App-AI-Studio-${user_id}` },
+                timeout: 5000
+              }
+            );
+            
+            if (response.status === 200) {
+              const geoData = response.data;
+              const addr = geoData.address || {};
+              
+              const components = [];
+              const house = addr.house_number || addr.building || addr.house_name || addr.office || addr.apartment || addr.flat || addr.street_number;
+              const street = addr.road || addr.pedestrian || addr.path || addr.street || addr.lane;
+              const area = addr.suburb || addr.neighbourhood || addr.village || addr.quarter || addr.hamlet;
+              
+              if (house) {
+                const formattedHouse = /^\d/.test(house) && !house.toLowerCase().includes('số') ? `Số ${house}` : house;
+                components.push(formattedHouse);
+              }
+              if (street) components.push(street);
+              if (components.length < 2 && area) components.push(area);
+
+              const fallback = geoData.display_name ? geoData.display_name.split(',').slice(0, 2).map((s: string) => s.trim()).join(', ') : "";
+              const address = components.join(", ") || fallback || "";
+              
+              if (address && address !== clientAddress) {
+                console.log(`[API Update] Address resolved: ${address}`);
+                if (isUUID(user_id)) {
+                  await supabase.from('locations').update({ address } as any).eq('user_id', user_id);
+                }
+                
+                // Sync history
+                await supabase.from('location_history')
+                  .update({ address })
+                  .eq('user_id', user_id)
+                  .is('address', null)
+                  .gte('lat', latitude - 0.0005)
+                  .lte('lat', latitude + 0.0005);
+              }
+            }
+          } catch (e) {
+            console.warn("[API Update] Geocoding background fail:", (e as Error).message);
           }
-        } catch (e) {
-          console.warn("[API Update] Geocoding background fail:", e);
-        }
-      })();
-    } catch (err) {
-      console.error("[API Update] Error:", err);
-      res.status(500).json({ error: "Internal server error" });
+        })();
+      }
+    } catch (err: any) {
+      console.error("[API Update] Final Catch Error:", err?.message || err);
+      res.status(500).json({ error: "Internal server error", message: err?.message || String(err) });
     }
   });
 

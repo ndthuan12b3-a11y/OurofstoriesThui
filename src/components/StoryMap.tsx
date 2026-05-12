@@ -27,6 +27,15 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
+// Helper to validate coordinates
+const isValidCoords = (coords: any): coords is [number, number] => {
+  if (!Array.isArray(coords) || coords.length !== 2) return false;
+  const lat = Number(coords[0]);
+  const lng = Number(coords[1]);
+  return typeof lat === 'number' && !isNaN(lat) && isFinite(lat) &&
+         typeof lng === 'number' && !isNaN(lng) && isFinite(lng);
+};
+
 // Smooth Marker with interpolation
 const SmoothMarker = ({ position, icon, children }: { 
   position: [number, number], 
@@ -39,6 +48,7 @@ const SmoothMarker = ({ position, icon, children }: {
   const requestRef = React.useRef<number | undefined>(undefined);
 
   React.useEffect(() => {
+    if (!isValidCoords(position)) return; // Don't animate to invalid positions
     let isSubscribed = true;
     targetPosRef.current = position;
     
@@ -47,6 +57,15 @@ const SmoothMarker = ({ position, icon, children }: {
       const [curLat, curLng] = currentPosRef.current;
       const [tarLat, tarLng] = targetPosRef.current;
       
+      if (isNaN(curLat) || isNaN(curLng) || isNaN(tarLat) || isNaN(tarLng)) {
+        if (markerRef.current && isValidCoords(targetPosRef.current)) {
+          markerRef.current.setLatLng(targetPosRef.current);
+          currentPosRef.current = targetPosRef.current;
+        }
+        requestRef.current = undefined;
+        return;
+      }
+
       const dfLat = tarLat - curLat;
       const dfLng = tarLng - curLng;
       const factor = 0.04; // Animation speed
@@ -101,12 +120,15 @@ const SmoothMarker = ({ position, icon, children }: {
 };
 
 // Custom marker with image
-const CustomMarker = React.memo(({ position, imageUrl, isOffline, color = 'rose' }: { 
+const CustomMarker = React.memo(({ id, position, imageUrl, isOffline, color = 'rose', address }: { 
+  id: string,
   position: [number, number], 
   imageUrl: string, 
   isOffline?: boolean,
-  color?: 'rose' | 'blue'
+  color?: 'rose' | 'blue',
+  address?: string | null
 }) => {
+  if (!isValidCoords(position)) return null;
   const pingColor = color === 'rose' ? 'bg-rose-400/20' : 'bg-blue-400/20';
   const pulseBorder = color === 'rose' ? 'border-rose-400/30' : 'border-blue-400/30';
 
@@ -137,6 +159,52 @@ const CustomMarker = React.memo(({ position, imageUrl, isOffline, color = 'rose'
 
   return (
     <SmoothMarker position={position} icon={icon}>
+      <Popup className="custom-user-popup">
+        <div className="p-3 min-w-[180px] flex flex-col items-center text-center">
+          <div className="w-14 h-14 rounded-2xl border-4 border-white shadow-xl overflow-hidden mb-3 relative">
+            <img src={imageUrl} className="w-full h-full object-cover" alt="" />
+            {!isOffline && (
+              <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></div>
+            )}
+          </div>
+          <div className="space-y-2">
+             <div className="flex flex-col gap-1">
+                {address ? (
+                  <p className="text-[11px] font-black text-gray-900 leading-tight bg-gray-50 p-2 rounded-xl border border-gray-100">
+                    {address}
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-gray-400 italic">
+                    {isOffline ? 'Không tìm thấy địa chỉ' : 'Đang xác định vị trí...'}
+                  </p>
+                )}
+                {!isOffline && (
+                  <button 
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        await fetch('/api/location/update', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ user_id: id, lat: position[0], lng: position[1] })
+                        });
+                        showNotification("Đang làm mới địa chỉ...");
+                      } catch (err) {}
+                    }}
+                    className="text-[8px] font-black text-primary uppercase tracking-widest mt-1 hover:underline"
+                  >
+                    Làm mới địa chỉ
+                  </button>
+                )}
+             </div>
+             <div className="pt-1 border-t border-gray-100">
+               <p className="text-[9px] text-rose-500 font-bold tracking-tighter">
+                 {position[0].toFixed(6)}, {position[1].toFixed(6)}
+               </p>
+             </div>
+          </div>
+        </div>
+      </Popup>
     </SmoothMarker>
   );
 });
@@ -234,14 +302,7 @@ const ZoomControl = () => {
   );
 };
 
-// Helper to validate coordinates
-const isValidCoords = (coords: any): coords is [number, number] => {
-  if (!Array.isArray(coords) || coords.length !== 2) return false;
-  const lat = Number(coords[0]);
-  const lng = Number(coords[1]);
-  return typeof lat === 'number' && !isNaN(lat) && isFinite(lat) &&
-         typeof lng === 'number' && !isNaN(lng) && isFinite(lng);
-};
+// Removed helper and moved up
 
 // Component to automatically fit the map view to show both markers
 const FitBoundsComponent = ({ 
@@ -540,8 +601,8 @@ export const StoryMap: React.FC<StoryMapProps> = ({
                       )}
                     </div>
                     <div className="flex flex-col gap-0.5 mt-1">
-                      <p className={`text-[8px] leading-relaxed font-bold ${!user.address ? 'text-gray-400 italic' : 'text-black'}`}>
-                        {user.address || 'Đang xác định vị trí...'}
+                      <p className={`text-[10px] leading-tight font-black tracking-tight ${!user.address ? 'text-gray-400' : 'text-gray-900 bg-gray-900/5 px-1.5 py-0.5 rounded-md inline-block'}`}>
+                        {user.address || (onlineUsers.includes(user.user_id) ? `Đang tìm số nhà...` : `${user.lat.toFixed(5)}, ${user.lng.toFixed(5)}`)}
                       </p>
                       {user.user_id !== userId && distance && (
                         <p className="text-[9px] font-black text-rose-500 flex items-center gap-1 tracking-tighter mt-0.5">
@@ -689,10 +750,12 @@ export const StoryMap: React.FC<StoryMapProps> = ({
           {Object.values(trackedUsers).map(user => (
             <CustomMarker
               key={user.user_id}
+              id={user.user_id}
               position={[user.lat, user.lng]}
               imageUrl={user.avatar_url || 'https://placehold.co/100x100?text=' + user.name.charAt(0)}
               isOffline={!onlineUsers.includes(user.user_id)}
               color={user.user_id === userId ? 'rose' : 'blue'}
+              address={user.address}
             />
           ))}
 
