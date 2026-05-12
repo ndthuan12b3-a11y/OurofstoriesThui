@@ -3,13 +3,11 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, Tooltip, Circle, Polyli
 import L, { Icon, divIcon } from 'leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, Calendar, BookOpen, X, Maximize2, Minimize2, Navigation as NavIcon, ChevronRight, List, Zap, User, Plus, Minus } from 'lucide-react';
+import { MapPin, Calendar, BookOpen, X, Maximize2, Minimize2, Navigation as NavIcon, ChevronRight, List, Zap, User, Plus, Minus, Home } from 'lucide-react';
 import { AppConfig, Database } from '../types';
 import { getOptimizedImageUrl } from '../lib/imageUtils';
-import { supabase } from '../lib/supabase';
-import { usePresence } from '../lib/PresenceContext';
+import { useMapLogic, TrackedUser } from '../hooks/useMapLogic';
 import { showNotification } from '../lib/notifications';
-import { reverseGeocode } from '../lib/geocoding';
 
 type Event = Database['public']['Tables']['events']['Row'];
 
@@ -211,17 +209,9 @@ interface StoryMapProps {
   config: AppConfig;
   userId?: string;
   userProfile?: { id: string, avatar_url: string | null } | null;
-}
-
-interface TrackedUser {
-  user_id: string;
-  lat: number;
-  lng: number;
-  updated_at: string;
-  avatar_url: string | null;
-  name: string;
-  address: string;
-  isOnline: boolean;
+  externalSelectedEvent?: Event | null;
+  onExternalEventConsumed?: () => void;
+  setActiveTab?: (tab: string) => void;
 }
 
 const ZoomControl = () => {
@@ -266,7 +256,7 @@ const FitBoundsComponent = ({
   refocusKey: number
 }) => {
   const map = useMap();
-  const lastKeyRef = React.useRef(0);
+  const lastKeyRef = React.useRef(-1);
 
   const points = useMemo(() => {
     const pts: [number, number][] = [];
@@ -279,7 +269,8 @@ const FitBoundsComponent = ({
     if (points.length === 0) return;
 
     // Trigger on initial load (points exist) or when refocus button clicked
-    if (refocusKey !== lastKeyRef.current || (points.length > 0 && lastKeyRef.current === 0)) {
+    if (refocusKey !== lastKeyRef.current) {
+      const isInitial = lastKeyRef.current === -1;
       lastKeyRef.current = refocusKey;
       
       if (points.length === 1) {
@@ -347,50 +338,37 @@ const InvalidateSizeHandler = ({ trigger }: { trigger: any }) => {
 
 // Removed old MapController
 
-export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, userProfile }) => {
-  const { onlineUsers } = usePresence();
+export const StoryMap: React.FC<StoryMapProps> = ({ 
+  events, config, userId, userProfile, externalSelectedEvent, onExternalEventConsumed, setActiveTab 
+ }) => {
+  const { 
+    trackedUsers, 
+    sortedUsers, 
+    userLocation, 
+    otherLocation, 
+    isOtherOnline, 
+    distance, 
+    onlineUsers 
+  } = useMapLogic(userId, config);
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showList, setShowList] = useState(true);
   const [selectedItem, setSelectedItem] = useState<Event | null>(null);
   const [flyToCoords, setFlyToCoords] = useState<[number, number] | null>(null);
-  const [trackedUsers, setTrackedUsers] = useState<Record<string, TrackedUser>>({});
   const [refocusKey, setRefocusKey] = useState(0);
-  const lastFetchedPosRef = React.useRef<Record<string, string>>({});
 
-  const sortedUsers = useMemo(() => {
-    return Object.values(trackedUsers).sort((a, b) => {
-      if (a.user_id === userId) return -1;
-      if (b.user_id === userId) return 1;
-      return 0;
-    });
-  }, [trackedUsers, userId]);
-
-  // Helper: Geocode with wrapper and rate limit protection
-  const getAddress = async (lat: number, lng: number, userId: string) => {
-    if (!lat || !lng) return;
-    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
-    if (lastFetchedPosRef.current[userId] === key) return;
-    
-    try {
-      lastFetchedPosRef.current[userId] = key;
-      const addr = await reverseGeocode(lat, lng);
-      setTrackedUsers(prev => ({
-        ...prev,
-        [userId]: { ...prev[userId], address: addr }
-      }));
-    } catch (e) {
-      setTrackedUsers(prev => ({
-        ...prev,
-        [userId]: { ...prev[userId], address: `${lat.toFixed(4)}, ${lng.toFixed(4)}` }
-      }));
-    }
-  };
-
+  // Handle external selection
   useEffect(() => {
-    Object.values(trackedUsers).forEach(user => {
-      getAddress(user.lat, user.lng, user.user_id);
-    });
-  }, [JSON.stringify(Object.values(trackedUsers).map(u => `${u.lat},${u.lng}`))]);
+    if (externalSelectedEvent && externalSelectedEvent.location) {
+      const lat = Number(externalSelectedEvent.location.lat);
+      const lng = Number(externalSelectedEvent.location.lng);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        setFlyToCoords([lat, lng]);
+        setSelectedItem(externalSelectedEvent);
+        if (onExternalEventConsumed) onExternalEventConsumed();
+      }
+    }
+  }, [externalSelectedEvent, onExternalEventConsumed]);
 
   const formatTime = (isoString: string) => {
     if (!isoString) return '';
@@ -405,167 +383,6 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
     if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`;
     return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   };
-
-  // Real-time Location Sharing
-  React.useEffect(() => {
-    if (!userId || !supabase) return;
-
-    let profilesMap: Record<string, any> = {};
-    let creatorId: string | null = null;
-
-    const fetchAllData = async () => {
-      try {
-        // Fetch Admin/Config creator ID to map male/female names deterministically
-        const { data: configData } = await supabase.from('config').select('user_id').limit(1).maybeSingle();
-        if (configData?.user_id) creatorId = configData.user_id;
-
-        // 1. Fetch Profiles
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('user_id, avatar_url');
-        
-        if (profiles) {
-          profiles.forEach(p => {
-            profilesMap[p.user_id] = p;
-          });
-        }
-
-        // 2. Fetch Locations
-        const { data: locations } = await supabase
-          .from('locations')
-          .select('*');
-        
-        if (locations) {
-          const newTrackedUsers: Record<string, TrackedUser> = {};
-          locations.forEach(loc => {
-            const profile = profilesMap[loc.user_id];
-            let dateStr = loc.updated_at;
-            if (dateStr && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
-              dateStr += 'Z';
-            }
-            const isOnline = (Date.now() - new Date(dateStr).getTime()) < 300000; // 5 mins
-            
-            // Map names: Creator -> Tên Anh (name_male), Other -> Tên Em (name_female)
-            // Typically creator might want to be name_male or name_female, but if it is reversed we swap it here.
-            let name = config.name_male;
-            if (creatorId) {
-              name = loc.user_id === creatorId ? config.name_female : config.name_male;
-            } else {
-              // fallback: smallest user_id is male
-              const sortedIds = profiles ? profiles.map(p => p.user_id).sort() : [];
-              if (sortedIds[0] === loc.user_id) name = config.name_female;
-              else name = config.name_male;
-            }
-
-            newTrackedUsers[loc.user_id] = {
-              user_id: loc.user_id,
-              lat: Number(loc.lat),
-              lng: Number(loc.lng),
-              updated_at: loc.updated_at,
-              avatar_url: profile?.avatar_url || null,
-              name: name || 'Người dùng',
-              address: '',
-              isOnline: isOnline
-            };
-          });
-          setTrackedUsers(newTrackedUsers);
-        }
-      } catch (err) {
-        console.error("Fetch initial data failed:", err);
-      }
-    };
-
-    fetchAllData();
-
-    // Setup Realtime Listener for locations
-    const channel = supabase
-      .channel('location-updates-all')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'locations' },
-        async (payload: any) => {
-          const loc = payload.new;
-          if (!loc) return;
-
-          const uid = loc.user_id;
-          const coords: [number, number] = [Number(loc.lat), Number(loc.lng)];
-          if (!isValidCoords(coords)) return;
-
-          // If tracking a new user, fetch their profile first
-          if (!profilesMap[uid]) {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('user_id, avatar_url')
-              .eq('user_id', uid)
-              .maybeSingle();
-            if (profile) profilesMap[uid] = profile;
-          }
-
-          setTrackedUsers(prev => {
-            const profile = profilesMap[uid];
-            
-            let name = config.name_male;
-            if (creatorId) {
-              name = uid === creatorId ? config.name_female : config.name_male;
-            } else {
-              const allIds = Object.keys(prev);
-              if (!allIds.includes(uid)) allIds.push(uid);
-              allIds.sort();
-              name = allIds[0] === uid ? config.name_female : config.name_male;
-            }
-
-            return {
-              ...prev,
-              [uid]: {
-                user_id: uid,
-                lat: coords[0],
-                lng: coords[1],
-                updated_at: loc.updated_at,
-                avatar_url: profile?.avatar_url || prev[uid]?.avatar_url || null,
-                name: name || 'Người dùng',
-                address: prev[uid]?.address || '',
-                isOnline: true
-              }
-            };
-          });
-        }
-      )
-      .subscribe();
-
-    const interval = setInterval(fetchAllData, 60000); // 1 min refresh fallback
-
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(interval);
-    };
-  }, [userId, config.name_male, config.name_female]);
-
-  // Derived properties for UI
-  const userLocation = trackedUsers[userId!] ? [trackedUsers[userId!].lat, trackedUsers[userId!].lng] as [number, number] : null;
-  const otherUsers = sortedUsers.filter(u => u.user_id !== userId);
-  const mainOther = otherUsers[0] || null;
-  const otherLocation = mainOther ? [mainOther.lat, mainOther.lng] as [number, number] : null;
-  const isOtherOnline = mainOther ? onlineUsers.includes(mainOther.user_id) : false;
-  const otherAddress = mainOther?.address || '';
-  const otherLastUpdate = mainOther?.updated_at || '';
-  const userAddress = trackedUsers[userId!]?.address || '';
-  const otherProfile = mainOther ? { avatar_url: mainOther.avatar_url, id: mainOther.user_id } : null;
-
-  const distance = useMemo(() => {
-    if (!userLocation || !otherLocation) return null;
-    const [lat1, lon1] = userLocation;
-    const [lat2, lon2] = otherLocation;
-    const R = 6371; // km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const d = R * c;
-    return d < 1 ? `${(d * 1000).toFixed(0)}m` : `${d.toFixed(2)}km`;
-  }, [userLocation, otherLocation]);
 
   // Filter items that have location and valid coordinates
   const mapItems = useMemo(() => {
@@ -629,7 +446,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
   }, []);
 
   return (
-    <div className={`relative transition-all duration-500 overflow-hidden flex flex-col md:flex-row ${isFullscreen ? 'fixed inset-0 z-[1500] h-[100dvh] w-screen bg-white' : 'h-[600px] md:h-[700px] rounded-[3rem] shadow-2xl border border-white/50 bg-white/40 backdrop-blur-xl'}`}>
+    <div className={`relative transition-all duration-500 overflow-hidden flex flex-col md:flex-row ${isFullscreen ? 'fixed inset-0 z-[1500] h-[100dvh] w-screen bg-white' : 'h-[600px] md:h-[700px] rounded-none shadow-2xl border border-white/20 bg-white/40 backdrop-blur-xl'}`}>
       
       {/* Memories List - Responsive Layout */}
       <motion.div 
@@ -642,135 +459,173 @@ export const StoryMap: React.FC<StoryMapProps> = ({ events, config, userId, user
         }}
         className="relative bg-white/50 backdrop-blur-2xl border-r md:border-r border-b md:border-b-0 border-white/30 overflow-hidden flex flex-col z-10 shrink-0"
       >
-        <div className="p-4 border-b border-white/20 flex items-center justify-between">
-          <h3 className="text-xs font-black text-gray-800 uppercase tracking-tight flex items-center gap-2">
-            Kỷ niệm
-          </h3>
-          <button onClick={() => setShowList(false)} className="md:hidden p-1 text-gray-400">
-            <X size={16} />
+        <div className="p-3 border-b border-white/20 flex items-center justify-between bg-white/40">
+          <div className="flex items-center gap-3">
+            <h3 className="text-[10px] font-black text-gray-800 uppercase tracking-[0.2em] flex items-center gap-2">
+              <Zap size={12} className="text-rose-500" /> TRỰC TIẾP
+            </h3>
+            
+            <div className="flex items-center gap-1 ml-2">
+              {setActiveTab && (
+                <motion.button
+                  whileHover={{ scale: 1.1, backgroundColor: 'rgba(0,0,0,0.05)' }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => setActiveTab('home')}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:text-primary transition-all"
+                  title="Trang chủ"
+                >
+                  <Home size={14} />
+                </motion.button>
+              )}
+              <motion.button
+                whileHover={{ scale: 1.1, backgroundColor: 'rgba(0,0,0,0.05)' }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => {
+                  if (!isOtherOnline) {
+                    showNotification('Người ấy chưa online', true);
+                    return;
+                  }
+                  if (otherLocation && isValidCoords(otherLocation)) {
+                    setFlyToCoords(otherLocation);
+                  } else {
+                    showNotification('Không tìm thấy vị trí người ấy', true);
+                  }
+                }}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:text-rose-500 transition-all"
+                title="Tìm người ấy"
+              >
+                <Zap size={14} />
+              </motion.button>
+            </div>
+          </div>
+          <button 
+            onClick={() => setShowList(false)} 
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 rounded-xl transition-all duration-300 group"
+            title="Ẩn danh sách"
+          >
+            <span className="text-[9px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Ẩn danh sách</span>
+            <X size={14} className="group-hover:rotate-90 transition-transform duration-300" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-4 custom-scrollbar">
-          {/* Live Section */}
-          <div className="space-y-2">
-            <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest px-2 flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
-              </span>
-              Trực tiếp
-            </p>
-            
-            {sortedUsers.map(user => (
-              <motion.button
-                key={user.user_id}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => handleSelectLiveLocation([user.lat, user.lng], user.name)}
-                className={`w-full p-3 rounded-2xl border transition-all flex items-center gap-3 ${onlineUsers.includes(user.user_id) ? 'bg-rose-50/50 border-rose-100' : 'bg-white/60 border-white/50'}`}
-              >
-                <div className={`w-10 h-10 rounded-xl overflow-hidden shadow-sm border-2 ${onlineUsers.includes(user.user_id) ? 'border-rose-400' : 'border-white'} bg-gray-50`}>
-                  <img src={user.avatar_url || 'https://placehold.co/100x100?text=' + user.name.charAt(0)} className="w-full h-full object-cover" alt={user.name} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-[11px] font-bold text-gray-800 flex items-center gap-1">
-                    {user.name}
-                    {onlineUsers.includes(user.user_id) && <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>}
-                  </h4>
-                  <p className="text-[9px] text-gray-500 truncate">{user.address || 'Đang xác định vị trí...'}</p>
-                  {user.user_id !== userId && distance && onlineUsers.includes(user.user_id) && (
-                    <p className="text-[10px] font-bold text-rose-500 flex items-center gap-1 mt-0.5">
-                      <NavIcon size={10} className="rotate-45" /> Cách bạn {distance}
-                    </p>
-                  )}
-                  {user.updated_at && <p className="text-[8px] text-gray-400 mt-0.5">{formatTime(user.updated_at)}</p>}
-                </div>
-              </motion.button>
-            ))}
+        <div className="flex-1 overflow-y-auto p-2.5 space-y-5 no-scrollbar">
+          {/* Live Section - More compact and horizontal-friendly */}
+          <div className="space-y-1.5">
+            <div className="grid grid-cols-1 gap-1.5">
+              {sortedUsers.map(user => (
+                <motion.button
+                  key={user.user_id}
+                  whileHover={{ x: 2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => handleSelectLiveLocation([user.lat, user.lng], user.name)}
+                  className={`w-full px-2 py-1.5 rounded-xl border transition-all flex items-center gap-2 ${onlineUsers.includes(user.user_id) ? 'bg-rose-50/40 border-rose-100/50 shadow-sm shadow-rose-100/20' : 'bg-white/40 border-transparent hover:bg-white/60'}`}
+                >
+                  <div className={`w-8 h-8 rounded-lg overflow-hidden shadow-sm border ${onlineUsers.includes(user.user_id) ? 'border-rose-400' : 'border-gray-200'} bg-white shrink-0`}>
+                    <img src={user.avatar_url || 'https://placehold.co/80x80?text=' + user.name.charAt(0)} className="w-full h-full object-cover" alt={user.name} />
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <div className="flex items-center justify-between gap-1">
+                      <h4 className="text-[10px] font-black text-gray-800 truncate">
+                        {user.user_id === userId ? 'Bạn' : user.name}
+                      </h4>
+                      {onlineUsers.includes(user.user_id) ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[7px] font-black text-green-500 uppercase tracking-tighter">Live</span>
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span>
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[7px] font-black text-gray-400 shrink-0 uppercase tracking-tighter bg-gray-100/50 px-1 rounded">{formatTime(user.updated_at)}</span>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-0.5 mt-1">
+                      <p className={`text-[8px] leading-relaxed font-bold ${!user.address ? 'text-gray-400 italic' : 'text-black'}`}>
+                        {user.address || 'Đang xác định vị trí...'}
+                      </p>
+                      {user.user_id !== userId && distance && (
+                        <p className="text-[9px] font-black text-rose-500 flex items-center gap-1 tracking-tighter mt-0.5">
+                          <NavIcon size={8} className="rotate-45 shrink-0" /> Cách bạn {distance}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </motion.button>
+              ))}
+            </div>
           </div>
 
-          {/* Memories Section */}
+          {/* Memories Section - Sleeker rows */}
           <div className="space-y-2">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2">Kỷ niệm cũ</p>
-            {mapItems.map(item => (
-            <motion.button
-              key={item.id}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => handleSelectFromList(item)}
-              className={`w-full p-2 rounded-xl flex items-center gap-2 text-left transition-all ${selectedItem?.id === item.id ? 'bg-rose-500 text-white shadow-lg shadow-rose-200' : 'bg-white/60 hover:bg-white/80 text-gray-700 border border-white/50'}`}
-            >
-              <img 
-                src={getOptimizedImageUrl(item.photo_url, 100)} 
-                className="w-10 h-10 rounded-lg object-cover shadow-sm" 
-                alt=""
-              />
-              <div className="flex-1 min-w-0">
-                <h4 className={`text-[10px] font-bold truncate ${selectedItem?.id === item.id ? 'text-white' : 'text-gray-800'}`}>
-                  {item.title}
-                </h4>
-                <p className={`text-[9px] truncate ${selectedItem?.id === item.id ? 'text-rose-100' : 'text-gray-500'}`}>
-                  {(item.location as any)?.address_name || 'Không rõ địa chỉ'}
-                </p>
-              </div>
-              <ChevronRight size={12} className={selectedItem?.id === item.id ? 'text-rose-100' : 'text-gray-300'} />
-            </motion.button>
-          ))}
+            <div className="flex items-center justify-between px-2 mb-2">
+              <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Lưu trữ</p>
+              <span className="text-[8px] font-black text-gray-300 bg-gray-50 px-1.5 py-0.5 rounded-md border border-gray-100">{mapItems.length}</span>
+            </div>
+            <div className="grid grid-cols-1 gap-1">
+              {mapItems.map(item => (
+                <motion.button
+                  key={item.id}
+                  whileHover={{ x: 2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => handleSelectFromList(item)}
+                  className={`w-full p-1.5 rounded-lg flex items-center gap-2 text-left transition-all ${selectedItem?.id === item.id ? 'bg-rose-500 text-white shadow-lg shadow-rose-200' : 'bg-white/30 hover:bg-white/60 text-gray-700'}`}
+                >
+                  <div className="w-8 h-8 rounded-md overflow-hidden bg-gray-100 shrink-0">
+                    <img 
+                      src={getOptimizedImageUrl(item.photo_url, 80)} 
+                      className="w-full h-full object-cover" 
+                      alt=""
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className={`text-[9px] font-black truncate leading-none mb-1 ${selectedItem?.id === item.id ? 'text-white' : 'text-gray-800'}`}>
+                      {item.title}
+                    </h4>
+                    <p className={`text-[8px] truncate font-medium ${selectedItem?.id === item.id ? 'text-rose-100' : 'text-gray-400'}`}>
+                      {new Date(item.date).toLocaleDateString('vi', { day: '2-digit', month: '2-digit' })} • {(item.location as any)?.address_name || 'Không rõ địa chỉ'}
+                    </p>
+                  </div>
+                </motion.button>
+              ))}
+            </div>
           </div>
         </div>
       </motion.div>
 
       {/* Map Content */}
       <div className="relative flex-1 min-h-[400px] h-full overflow-hidden">
-        {/* HUD Controls */}
+        {/* HUD Controls - Minimal & Transparent */}
         <div className="absolute top-4 left-4 right-4 md:top-6 md:left-6 md:right-6 z-[1000] flex items-center justify-between pointer-events-none">
-          <div className="flex gap-2 pointer-events-auto">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                if (!isOtherOnline) {
-                  showNotification('Người ấy chưa online', true);
-                  return;
-                }
-                if (otherLocation && isValidCoords(otherLocation)) {
-                  setFlyToCoords(otherLocation);
-                } else {
-                  showNotification('Không tìm thấy vị trí người ấy', true);
-                }
-              }}
-              className="w-10 h-10 md:w-auto md:h-auto md:px-5 md:py-3 bg-white/70 backdrop-blur-md rounded-full md:rounded-3xl border border-white/50 shadow-lg flex items-center justify-center md:justify-start gap-2 text-gray-800 hover:text-rose-500 transition-colors pointer-events-auto"
-              title="Tìm người ấy"
-            >
-              <Zap size={18} className="text-rose-500 shrink-0" />
-              <span className="text-xs font-bold font-sans hidden md:block">Tìm người ấy</span>
-            </motion.button>
-
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setShowList(!showList)}
-              className={`w-10 h-10 md:w-auto md:h-auto md:px-5 md:py-3 bg-white/70 backdrop-blur-md rounded-full md:rounded-3xl border border-white/50 shadow-lg flex items-center justify-center md:justify-start gap-2 transition-colors pointer-events-auto ${showList ? 'bg-rose-500 text-white border-rose-400' : 'text-gray-800'}`}
-              title="Kỷ niệm"
-            >
-              <List size={18} className="shrink-0" />
-              <span className="text-xs font-bold font-sans hidden md:block">Kỷ niệm</span>
-            </motion.button>
+          <div className="flex items-center gap-2 pointer-events-auto">
+            {!showList && (
+              <motion.button
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                whileHover={{ scale: 1.05, backgroundColor: 'rgba(255,255,255,0.4)' }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowList(true)}
+                className="h-9 px-4 bg-white/20 backdrop-blur-xl border border-white/30 rounded-2xl flex items-center gap-2 shadow-xl shadow-black/5 text-gray-800 transition-all duration-300"
+              >
+                <List size={16} />
+                <span className="text-[9px] font-black uppercase tracking-widest">Hiện danh sách</span>
+              </motion.button>
+            )}
           </div>
 
-          <div className="flex gap-2 pointer-events-auto">
+          <div className="flex items-center gap-1.5 p-1 bg-white/10 backdrop-blur-xl rounded-full border border-white/20 shadow-xl shadow-black/5 pointer-events-auto">
             <button 
               onClick={() => setIsFullscreen(!isFullscreen)}
-              className="w-10 h-10 md:w-auto md:h-auto md:p-4 bg-white/70 backdrop-blur-md text-gray-800 rounded-full md:rounded-3xl border border-white/50 shadow-lg flex items-center justify-center hover:scale-110 active:scale-95 transition-all"
+              className="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 hover:bg-white/20 transition-all"
+              title={isFullscreen ? "Thu nhỏ" : "Toàn màn hình"}
             >
-              {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+              {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
             {isFullscreen && (
               <button 
                 onClick={() => setIsFullscreen(false)}
-                className="w-10 h-10 md:w-auto md:h-auto md:p-4 flex items-center justify-center bg-rose-400/10 backdrop-blur-md text-rose-500 rounded-full md:rounded-3xl border border-rose-100 shadow-lg hover:scale-110 active:scale-95 transition-all"
+                className="w-8 h-8 flex items-center justify-center rounded-full text-rose-500 hover:bg-rose-500/10 transition-all"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             )}
           </div>

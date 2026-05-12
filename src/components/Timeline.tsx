@@ -22,6 +22,7 @@ const StoryMap = React.lazy(() => import('./StoryMap').then(m => ({ default: m.S
 interface TimelineProps {
   config: AppConfig;
   userRole: string;
+  onViewOnMap?: (event: Event) => void;
 }
 
 interface Event {
@@ -159,7 +160,7 @@ const LoveTimer = ({ startDate }: { startDate: string }) => {
   );
 };
 
-export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
+export const Timeline: React.FC<TimelineProps> = ({ config, userRole, onViewOnMap }) => {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
@@ -425,7 +426,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
             
             <div className="flex flex-col">
               <h1 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight leading-none mb-3">
-                Anh thúi xấu xí <Heart size={18} className="inline text-rose-300 mx-1" fill="currentColor" /> Em thúi xinh gái 😘
+                {config.name_male} <Heart size={18} className="inline text-rose-300 mx-1" fill="currentColor" /> {config.name_female}
               </h1>
               <div className="flex flex-wrap items-center gap-4">
                 <LoveTimer startDate={config.start_date} />
@@ -706,14 +707,26 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole }) => {
 
                       {/* Optional Location Info if available */}
                       {selectedEvent.location && (
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-gray-50">
-                            <MapPin size={20} className="text-blue-400" />
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-gray-50">
+                              <MapPin size={20} className="text-blue-400" />
+                            </div>
+                            <div className="min-w-0 flex-grow">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-gray-300">Địa điểm</p>
+                              <p className="text-[11px] font-bold text-gray-700 truncate">{selectedEvent.location.address_name}</p>
+                            </div>
                           </div>
-                          <div className="min-w-0 flex-grow">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-300">Địa điểm</p>
-                            <p className="text-[11px] font-bold text-gray-700 truncate">{selectedEvent.location.address_name}</p>
-                          </div>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onViewOnMap) onViewOnMap(selectedEvent);
+                              setSelectedEvent(null);
+                            }}
+                            className="w-full py-2 bg-blue-50 text-blue-500 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-100 transition-colors flex items-center justify-center gap-2"
+                          >
+                            <MapPin size={12} /> Xem trên bản đồ
+                          </button>
                         </div>
                       )}
 

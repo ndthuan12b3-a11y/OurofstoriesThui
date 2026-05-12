@@ -64,21 +64,21 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
               </div>
             )}
 
-            <div className="flex items-center justify-between p-6 border-b border-white/20">
-              <h2 className="text-sm font-black text-gray-800 uppercase tracking-[0.25em]">{title}</h2>
+            <div className="flex items-center justify-between p-5 md:p-6 border-b border-white/20">
+              <h2 className="text-[10px] md:text-sm font-black text-gray-800 uppercase tracking-[0.25em]">{title}</h2>
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onClose();
                 }}
-                className="p-2 text-gray-400 hover:text-primary hover:bg-primary/10 rounded-xl transition-all duration-300"
+                className="p-1.5 md:p-2 text-gray-400 hover:text-primary hover:bg-primary/10 rounded-xl transition-all duration-300"
               >
-                <X size={20} />
+                <X size={18} className="md:w-[20px] md:h-[20px]" />
               </button>
             </div>
-            <div className="p-8 max-h-[80vh] overflow-y-auto custom-scrollbar">
-              <div className="text-gray-600 leading-relaxed font-medium space-y-4">
+            <div className="p-6 md:p-8 max-h-[85vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar">
+              <div className="text-gray-600 leading-relaxed font-medium space-y-4 text-sm md:text-base">
                 {children}
               </div>
             </div>

@@ -31,10 +31,10 @@ const MusicManagementPlayer: React.FC = () => {
   return (
     <div className="flex flex-col gap-4 p-6 bg-white rounded-3xl shadow-sm border border-gray-100">
       <div className="flex items-center justify-between gap-4">
-        <div className="flex-grow min-w-0">
-          <p className="text-sm font-black text-gray-800 truncate">{currentTrack?.title || "Không có nhạc"}</p>
-          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Đang phát</p>
-        </div>
+          <div className="flex-grow min-w-0 pr-4">
+            <p className="text-sm font-black text-gray-800 truncate">{currentTrack?.title || "Sẵn sàng phát nhạc"}</p>
+            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{isPlaying ? "Đang phát giai điệu" : "Đang tạm dừng"}</p>
+          </div>
         <div className="flex items-center gap-2 shrink-0">
           <button 
             onClick={() => setVolume(volume === 0 ? 0.7 : 0)}
@@ -95,6 +95,7 @@ interface ManagementProps {
   config: AppConfig;
   onConfigUpdate: () => void;
   userId: string;
+  userEmail?: string | null;
   userProfile?: { id: string, avatar_url: string | null } | null;
   onProfileUpdate?: () => void;
 }
@@ -102,7 +103,7 @@ interface ManagementProps {
 const PRIMARY_CONFIG_ID = '6857068c-7cc5-45ce-8099-23f0e3264251';
 
 export const Management: React.FC<ManagementProps> = ({ 
-  userRole, config, onConfigUpdate, userId, userProfile, onProfileUpdate 
+  userRole, config, onConfigUpdate, userId, userEmail, userProfile, onProfileUpdate 
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'config' | 'events' | 'gallery' | 'music' | 'stories' | 'users'>('dashboard');
   
@@ -133,6 +134,11 @@ export const Management: React.FC<ManagementProps> = ({
   const [loading, setLoading] = useState(false);
 
   const [configForm, setConfigForm] = useState(config);
+
+  useEffect(() => {
+    setConfigForm(config);
+  }, [config]);
+
   const [bgImageFile, setBgImageFile] = useState<File | null>(null);
   const [bgVideoFile, setBgVideoFile] = useState<File | null>(null);
   const [eventForm, setEventForm] = useState({ 
@@ -562,44 +568,58 @@ export const Management: React.FC<ManagementProps> = ({
 
   return (
     <div className="animate-fadeIn pb-20">
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
-        <h1 className="text-3xl font-black text-gray-800 flex items-center gap-2">
-          <ShieldCheck className="text-red-500" /> Quản Lý Dữ Liệu
-        </h1>
-        <div className="flex bg-white rounded-xl p-1 soft-shadow overflow-x-auto max-w-full">
-          {[
-            { id: 'dashboard', label: 'Tổng Quan', icon: History },
-            { id: 'config', label: 'Cấu Hình', icon: Settings },
-            { id: 'events', label: 'Kỷ Niệm', icon: History },
-            { id: 'gallery', label: 'Ảnh', icon: ImageIcon },
-            { id: 'music', label: 'Nhạc', icon: Music },
-            { id: 'stories', label: 'Câu Chuyện', icon: BookOpen },
-            { id: 'users', label: 'Người Dùng', icon: Users, adminOnly: true },
-          ].filter(t => !t.adminOnly || userRole === 'admin').map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as any)}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap",
-                activeSubTab === tab.id 
-                  ? "bg-primary text-white soft-shadow" 
-                  : "text-gray-500 hover:bg-gray-50"
-              )}
-            >
-              <tab.icon size={16} />
-              {tab.label}
-            </button>
-          ))}
+      <div className="mb-10 md:mb-16">
+        <div className="bg-white/40 backdrop-blur-2xl rounded-[2.5rem] md:rounded-[4rem] p-1.5 md:p-2 shadow-sm border border-white/60 w-full mx-auto max-w-6xl">
+          <div className="flex items-center gap-1 md:gap-2 overflow-x-auto no-scrollbar scroll-smooth px-1 py-1">
+            {[
+              { id: 'dashboard', label: 'Tổng Quan', icon: Sparkles },
+              { id: 'config', label: 'Cấu Hình', icon: Settings },
+              { id: 'events', label: 'Kỷ Niệm', icon: History, count: stats.totalEvents },
+              { id: 'gallery', label: 'Kho Ảnh', icon: ImageIcon, count: stats.totalPhotos },
+              { id: 'stories', label: 'Truyện', icon: BookOpen, count: stats.totalStories },
+              { id: 'users', label: 'Thành Viên', icon: Users, adminOnly: true, count: stats.totalUsers },
+            ].filter(t => !t.adminOnly || userRole === 'admin').map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveSubTab(tab.id as any)}
+                className={cn(
+                  "flex items-center gap-2 md:gap-3 px-4 md:px-7 py-3 md:py-4 rounded-[2rem] md:rounded-[3rem] transition-all duration-300 group shrink-0 relative cursor-pointer touch-manipulation min-w-max",
+                  activeSubTab === tab.id 
+                    ? "bg-white text-primary shadow-lg z-10" 
+                    : "text-gray-500 hover:text-gray-800 hover:bg-white/30"
+                )}
+              >
+                <div className={cn(
+                  "w-7 h-7 md:w-10 md:h-10 rounded-full flex items-center justify-center transition-all duration-300 shrink-0",
+                  activeSubTab === tab.id ? "bg-primary text-white shadow-primary/20 shadow-lg" : "bg-white/60 group-hover:bg-white"
+                )}>
+                  <tab.icon size={activeSubTab === tab.id ? 14 : 15} className={cn("md:w-5 md:h-5", activeSubTab === tab.id ? "text-white" : "text-gray-400 group-hover:text-primary")} />
+                </div>
+                <div className="flex flex-col items-start leading-tight">
+                  <span className={cn(
+                    "block text-[10px] md:text-sm font-black uppercase tracking-wider transition-colors",
+                    activeSubTab === tab.id ? "text-gray-900" : "text-gray-500"
+                  )}>{tab.label}</span>
+                  {tab.count !== undefined && (
+                    <span className={cn(
+                      "text-[8px] md:text-[10px] font-bold mt-0.5",
+                      activeSubTab === tab.id ? "text-primary" : "text-gray-300"
+                    )}>{tab.count} mục</span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="mt-8">
         {activeSubTab === 'dashboard' && (
-          <div className="space-y-8">
+          <div className="space-y-12">
             {/* Personal Profile Section */}
-            <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-rose-100 flex flex-col md:flex-row items-center gap-8">
+            <div className="bg-white/30 backdrop-blur-md p-6 md:p-8 rounded-[3rem] md:rounded-[4rem] border border-white/50 soft-shadow flex flex-col md:flex-row items-center gap-6 md:gap-10">
               <div className="relative group shrink-0">
-                <div className="w-32 h-32 rounded-[2rem] overflow-hidden shadow-2xl border-4 border-white group-hover:opacity-90 transition-opacity bg-gray-50">
+                <div className="w-28 h-28 md:w-32 md:h-32 rounded-[2rem] md:rounded-[2.5rem] overflow-hidden shadow-2xl border-4 border-white group-hover:opacity-90 transition-all bg-gray-50 flex items-center justify-center">
                   <img 
                     src={personalAvatarPreview || userProfile?.avatar_url || 'https://placehold.co/150x150?text=Avatar'} 
                     className="w-full h-full object-cover" 
@@ -621,17 +641,17 @@ export const Management: React.FC<ManagementProps> = ({
                 />
                 <label 
                   htmlFor="personal-avatar" 
-                  className="absolute -bottom-2 -right-2 w-10 h-10 bg-primary text-white rounded-2xl shadow-xl flex items-center justify-center cursor-pointer hover:scale-110 transition-transform z-10"
+                  className="absolute -bottom-2 -right-2 w-10 h-10 md:w-12 md:h-12 bg-primary text-white rounded-[1.2rem] md:rounded-[1.5rem] shadow-xl flex items-center justify-center cursor-pointer hover:scale-110 transition-transform z-10 border-4 border-white"
                 >
-                  <Camera size={18} />
+                  <Camera size={18} className="md:w-5 md:h-5" />
                 </label>
               </div>
               
-              <div className="flex-grow text-center md:text-left">
-                <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">Hồ sơ cá nhân</h2>
-                <p className="text-sm text-gray-500 font-medium mt-1">Cài đặt ảnh đại diện riêng để hiển thị trên bản đồ và các hoạt động của bạn.</p>
+              <div className="flex-grow text-center md:text-left min-w-0">
+                <h2 className="text-xl md:text-2xl font-black text-gray-800 uppercase tracking-tighter truncate">Hồ sơ cá nhân</h2>
+                <p className="text-xs md:text-sm text-gray-500 font-medium mt-1 md:mt-2 leading-relaxed line-clamp-2 md:line-clamp-none">Cài đặt ảnh đại diện riêng để hiển thị trên bản đồ.</p>
                 
-                <div className="mt-6 flex flex-col items-center md:items-start gap-4">
+                <div className="mt-6 md:mt-8 flex flex-col items-center md:items-start gap-4">
                   {(personalAvatarFile) && (
                     <motion.div 
                       initial={{ opacity: 0, y: 10 }}
@@ -641,7 +661,7 @@ export const Management: React.FC<ManagementProps> = ({
                       <button 
                         onClick={handlePersonalProfileSubmit}
                         disabled={loading}
-                        className="px-6 py-3 bg-gray-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-primary transition-all flex items-center gap-2"
+                        className="px-6 md:px-8 py-3 md:py-4 bg-gray-900 text-white rounded-[1.5rem] md:rounded-3xl text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] hover:bg-primary transition-all flex items-center gap-2 shadow-lg"
                       >
                         {loading ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
                         Lưu hồ sơ
@@ -650,7 +670,7 @@ export const Management: React.FC<ManagementProps> = ({
                         onClick={() => {
                           setPersonalAvatarFile(null);
                         }}
-                        className="px-6 py-3 bg-gray-100 text-gray-500 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
+                        className="px-6 md:px-8 py-3 md:py-4 bg-white/50 text-gray-500 rounded-[1.5rem] md:rounded-3xl text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] hover:bg-white transition-all shadow-sm"
                       >
                         Hủy
                       </button>
@@ -659,107 +679,138 @@ export const Management: React.FC<ManagementProps> = ({
                 </div>
               </div>
 
-              <div className="hidden lg:block shrink-0 px-8 py-4 bg-rose-50 rounded-3xl border border-rose-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-rose-500 shadow-sm">
-                    <Heart size={20} fill="currentColor" />
+              <div className="hidden md:block shrink-0 px-6 py-4 md:px-10 md:py-6 bg-rose-50/50 backdrop-blur-sm rounded-[2rem] md:rounded-[3rem] border border-rose-100 shadow-sm">
+                <div className="flex items-center gap-3 md:gap-4">
+                  <div className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-xl md:rounded-2xl flex items-center justify-center text-rose-500 shadow-md">
+                    <Heart size={20} fill="currentColor" className="md:w-6 md:h-6" />
                   </div>
                   <div>
-                    <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest leading-none mb-1">Trạng thái</p>
-                    <p className="text-xs font-bold text-gray-800 leading-none">Cá nhân hóa ❤️</p>
+                    <p className="text-[9px] md:text-[10px] font-black text-rose-400 uppercase tracking-[0.3em] leading-none mb-1 md:mb-2">Trạng thái</p>
+                    <p className="text-[10px] md:text-xs font-black text-gray-800 leading-none">Cá nhân hóa ❤️</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Stats Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { label: 'Kỷ Niệm', value: stats.totalEvents, icon: History, color: 'text-blue-500', bg: 'bg-blue-50' },
-                { label: 'Hình Ảnh', value: stats.totalPhotos, icon: ImageIcon, color: 'text-green-500', bg: 'bg-green-50' },
-                { label: 'Bài Hát', value: stats.totalMusic, icon: Music, color: 'text-purple-500', bg: 'bg-purple-50' },
-                { label: 'Câu Chuyện', value: stats.totalStories, icon: BookOpen, color: 'text-rose-500', bg: 'bg-rose-50' },
-                { label: 'Người Dùng', value: stats.totalUsers, icon: Users, color: 'text-orange-500', bg: 'bg-orange-50' },
-              ].map((stat, i) => (
-                <div key={i} className="bg-white p-6 rounded-3xl soft-shadow border border-gray-50">
-                  <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center mb-4", stat.bg)}>
-                    <stat.icon className={stat.color} size={24} />
-                  </div>
-                  <p className="text-3xl font-black text-gray-800">{stat.value}</p>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{stat.label}</p>
+            {/* Music Player Section - NEW Integrated Home Hub Player */}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 md:gap-10">
+              <div className="xl:col-span-2 bg-white/20 backdrop-blur-md p-6 md:p-10 rounded-[3rem] md:rounded-[4rem] border border-white/30 shadow-sm">
+                <div className="flex items-center justify-between mb-6 md:mb-8">
+                  <h3 className="text-lg md:text-xl font-black text-gray-800 flex items-center gap-3">
+                    <Music className="text-primary" size={24} /> Trình Phát Nhạc
+                  </h3>
+                  <button 
+                    onClick={() => { setEditingItem(null); setIsMusicModalOpen(true); }}
+                    className="p-2 md:p-3 bg-primary text-white rounded-2xl md:rounded-[1.5rem] hover:scale-105 transition-transform shadow-lg shadow-primary/20"
+                  >
+                    <Plus size={20} />
+                  </button>
                 </div>
-              ))}
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                  <MusicManagementPlayer />
+                  <div className="bg-white/40 rounded-3xl p-4 md:p-6 border border-white/50 max-h-[280px] overflow-y-auto no-scrollbar">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Danh sách phát</p>
+                    <div className="space-y-2">
+                       {music.map((m, index) => (
+                         <div key={m.id} className="flex items-center justify-between p-3 rounded-2xl hover:bg-white/60 transition-colors group">
+                           <div className="flex items-center gap-3 min-w-0">
+                             <span className="text-[10px] font-black text-gray-300 w-4">{index + 1}</span>
+                             <span className="text-xs font-black text-gray-700 truncate">{m.title}</span>
+                           </div>
+                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                             <button onClick={() => { setEditingItem(m); setIsMusicModalOpen(true); }} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"><Edit size={14} /></button>
+                             <button onClick={() => handleDelete('music_playlist', m.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14} /></button>
+                           </div>
+                         </div>
+                       ))}
+                       {music.length === 0 && <p className="text-center py-8 text-gray-400 text-[10px] font-black uppercase tracking-widest italic">Chưa có nhạc</p>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white/30 backdrop-blur-md p-6 md:p-8 rounded-[3rem] border border-white/50 flex flex-col justify-center items-center text-center">
+                 <div className="w-16 h-16 md:w-20 md:h-20 bg-primary/10 rounded-full flex items-center justify-center text-primary mb-4">
+                    <Sparkles size={32} />
+                 </div>
+                 <h4 className="text-lg font-black text-gray-800 uppercase tracking-tighter">Số liệu HUB</h4>
+                 <div className="grid grid-cols-2 gap-4 w-full mt-6">
+                    <div className="bg-white/60 p-4 rounded-2xl border border-white/50">
+                       <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Kỷ niệm</p>
+                       <p className="text-xl font-black text-primary">{stats.totalEvents}</p>
+                    </div>
+                    <div className="bg-white/60 p-4 rounded-2xl border border-white/50">
+                       <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Hình ảnh</p>
+                       <p className="text-xl font-black text-primary">{stats.totalPhotos}</p>
+                    </div>
+                    <div className="bg-white/60 p-4 rounded-2xl border border-white/50">
+                       <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Giai điệu</p>
+                       <p className="text-xl font-black text-primary">{stats.totalMusic}</p>
+                    </div>
+                    <div className="bg-white/60 p-4 rounded-2xl border border-white/50">
+                       <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Bộ truyện</p>
+                       <p className="text-xl font-black text-primary">{stats.totalStories}</p>
+                    </div>
+                 </div>
+              </div>
             </div>
 
             {/* Recent Activity / Quick View */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-3xl soft-shadow border border-gray-50">
-                <h3 className="text-lg font-black text-gray-800 mb-4 flex items-center gap-2">
-                  <History className="text-blue-500" size={20} /> Kỷ Niệm Mới
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-10">
+              <div className="bg-white/20 backdrop-blur-md p-6 md:p-10 rounded-[3rem] md:rounded-[4rem] border border-white/30 shadow-sm">
+                <h3 className="text-lg md:text-xl font-black text-gray-800 mb-6 md:mb-8 flex items-center gap-3">
+                  <History className="text-blue-500" size={24} /> Kỷ Niệm Mới Nhất
                 </h3>
-                <div className="space-y-4">
-                  {events.slice(0, 3).map((event) => (
-                    <div key={event.id} className="flex items-center gap-4 p-3 rounded-2xl hover:bg-gray-50 transition-colors">
-                      <img src={event.photo_url} alt="" className="w-12 h-12 rounded-xl object-cover" referrerPolicy="no-referrer" />
+                <div className="space-y-4 md:space-y-6">
+                  {events.slice(0, 4).map((event) => (
+                    <div key={event.id} className="flex items-center gap-4 md:gap-6 p-3 md:p-4 rounded-[2rem] md:rounded-[2.5rem] hover:bg-white/40 transition-all border border-transparent hover:border-white/50 group">
+                      <img src={event.photo_url} alt="" className="w-16 h-16 md:w-20 md:h-20 rounded-[1.5rem] md:rounded-[2rem] object-cover shadow-md group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
                       <div className="min-w-0">
-                        <p className="font-bold text-gray-800 truncate">{event.title}</p>
-                        <p className="text-[10px] text-gray-400 font-bold uppercase">{formatDate(event.date)}</p>
+                        <p className="font-black text-base md:text-lg text-gray-800 truncate">{event.title}</p>
+                        <p className="text-[10px] md:text-xs text-gray-400 font-bold uppercase tracking-[0.2em] mt-1 md:mt-2">{formatDate(event.date)}</p>
                       </div>
+                      <button 
+                        onClick={() => { setActiveSubTab('events'); setEditingItem(event); setIsEventModalOpen(true); }}
+                        className="ml-auto p-2 md:p-3 text-gray-300 hover:text-primary transition-colors hover:bg-white rounded-xl md:rounded-2xl"
+                      >
+                        <Edit size={18} className="md:w-5 md:h-5" />
+                      </button>
                     </div>
                   ))}
+                  {events.length === 0 && <p className="text-center py-8 md:py-12 text-gray-400 font-bold text-[10px] md:text-xs uppercase tracking-[0.3em] italic">Chưa có kỷ niệm nào</p>}
                 </div>
+                <button 
+                  onClick={() => setActiveSubTab('events')}
+                  className="w-full mt-6 md:mt-8 py-3 md:py-4 text-[10px] md:text-xs font-black text-gray-400 uppercase tracking-[0.4em] hover:text-primary transition-colors border-t border-white/20 pt-6 md:pt-8"
+                >
+                  Xem tất cả kỷ niệm
+                </button>
               </div>
 
-              <div className="bg-white p-6 rounded-3xl soft-shadow border border-gray-50">
-                <h3 className="text-lg font-black text-gray-800 mb-4 flex items-center gap-2">
-                  <ImageIcon className="text-green-500" size={20} /> Ảnh Mới Tải
+              <div className="bg-white/20 backdrop-blur-md p-6 md:p-10 rounded-[3rem] md:rounded-[4rem] border border-white/30 shadow-sm">
+                <h3 className="text-lg md:text-xl font-black text-gray-800 mb-6 md:mb-8 flex items-center gap-3">
+                  <ImageIcon className="text-green-500" size={24} /> Kho Ảnh Đã Tải
                 </h3>
-                <div className="grid grid-cols-4 gap-2">
-                  {gallery.slice(0, 8).map((photo) => (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 md:gap-4">
+                  {gallery.slice(0, 12).map((photo) => (
                     <img 
                       key={photo.id} 
                       src={photo.photo_url} 
                       alt="" 
-                      className="aspect-square rounded-xl object-cover hover:scale-105 transition-transform cursor-pointer" 
+                      className="aspect-square rounded-[1.2rem] md:rounded-[1.5rem] object-cover hover:scale-110 transition-all cursor-pointer shadow-md border-2 border-white/50" 
                       referrerPolicy="no-referrer"
+                      onClick={() => { setActiveSubTab('gallery'); setEditingItem(photo); setIsPhotoModalOpen(true); }}
                     />
                   ))}
+                  {gallery.length === 0 && <div className="col-span-3 sm:col-span-4 py-12 md:py-16 text-center text-gray-400 font-bold text-[10px] md:text-xs uppercase tracking-[0.3em] italic">Chưa có hình ảnh nào</div>}
                 </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-3xl soft-shadow border border-gray-50">
-                <h3 className="text-lg font-black text-gray-800 mb-4 flex items-center gap-2">
-                  <Plus className="text-primary" size={20} /> Thao Tác Nhanh
-                </h3>
-                <div className="grid grid-cols-1 gap-2">
-                  <button 
-                    onClick={() => { setActiveSubTab('events'); setIsEventModalOpen(true); }}
-                    className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl hover:bg-primary/5 hover:text-primary transition-all group"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center soft-shadow group-hover:scale-110 transition-transform">
-                      <History size={18} />
-                    </div>
-                    <span className="font-bold text-sm">Thêm Kỷ Niệm</span>
-                  </button>
-                  <button 
-                    onClick={() => { setActiveSubTab('gallery'); setIsPhotoModalOpen(true); }}
-                    className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl hover:bg-primary/5 hover:text-primary transition-all group"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center soft-shadow group-hover:scale-110 transition-transform">
-                      <ImageIcon size={18} />
-                    </div>
-                    <span className="font-bold text-sm">Thêm Hình Ảnh</span>
-                  </button>
-                  <button 
-                    onClick={() => { setActiveSubTab('music'); setIsMusicModalOpen(true); }}
-                    className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl hover:bg-primary/5 hover:text-primary transition-all group"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center soft-shadow group-hover:scale-110 transition-transform">
-                      <Music size={18} />
-                    </div>
-                    <span className="font-bold text-sm">Thêm Nhạc</span>
-                  </button>
-                </div>
+                <button 
+                  onClick={() => setActiveSubTab('gallery')}
+                  className="w-full mt-6 md:mt-8 py-3 md:py-4 text-[10px] md:text-xs font-black text-gray-400 uppercase tracking-[0.4em] hover:text-primary transition-colors border-t border-white/20 pt-6 md:pt-8"
+                >
+                  Truy cập kho ảnh
+                </button>
               </div>
             </div>
           </div>
@@ -812,7 +863,7 @@ export const Management: React.FC<ManagementProps> = ({
           </div>
         )}
 
-        {activeSubTab !== 'config' && (
+        {activeSubTab !== 'config' && activeSubTab !== 'dashboard' && (
           <div className="bg-white rounded-2xl soft-shadow overflow-hidden">
             {activeSubTab === 'music' && (
               <div className="p-6 border-b bg-gray-50/50">
@@ -845,52 +896,52 @@ export const Management: React.FC<ManagementProps> = ({
               )}
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto no-scrollbar">
               <table className="w-full text-sm text-left">
-                <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] tracking-wider">
+                <thead className="bg-gray-50/50 text-gray-400 font-black uppercase text-[9px] md:text-[10px] tracking-widest border-b border-gray-100">
                   <tr>
                     {activeSubTab === 'events' && (
                       <>
-                        <th className="px-6 py-4">STT</th>
-                        <th className="px-6 py-4">Ảnh</th>
-                        <th className="px-6 py-4">Sự kiện</th>
-                        <th className="px-6 py-4">Ngày</th>
-                        <th className="px-6 py-4">Ngày tạo</th>
-                        <th className="px-6 py-4 text-right">Thao tác</th>
+                        <th className="px-4 md:px-6 py-4">STT</th>
+                        <th className="px-4 md:px-6 py-4">Ảnh</th>
+                        <th className="px-4 md:px-6 py-4">Sự kiện</th>
+                        <th className="px-4 md:px-6 py-4">Ngày</th>
+                        <th className="px-6 py-4 hidden md:table-cell">Ngày tạo</th>
+                        <th className="px-4 md:px-6 py-4 text-right">Thao tác</th>
                       </>
                     )}
                     {activeSubTab === 'gallery' && (
                       <>
-                        <th className="px-6 py-4">STT</th>
-                        <th className="px-6 py-4">Ảnh</th>
-                        <th className="px-6 py-4">Mô tả</th>
-                        <th className="px-6 py-4">Tags</th>
-                        <th className="px-6 py-4">Ngày tạo</th>
-                        <th className="px-6 py-4 text-right">Thao tác</th>
+                        <th className="px-4 md:px-6 py-4">STT</th>
+                        <th className="px-4 md:px-6 py-4">Ảnh</th>
+                        <th className="px-4 md:px-6 py-4">Mô tả</th>
+                        <th className="px-6 py-4 hidden md:table-cell">Tags</th>
+                        <th className="px-6 py-4 hidden md:table-cell">Ngày tạo</th>
+                        <th className="px-4 md:px-6 py-4 text-right">Thao tác</th>
                       </>
                     )}
                     {activeSubTab === 'music' && (
                       <>
-                        <th className="px-6 py-4">STT</th>
-                        <th className="px-6 py-4">Tên bài hát</th>
-                        <th className="px-6 py-4">Ngày tạo</th>
-                        <th className="px-6 py-4 text-right">Thao tác</th>
+                        <th className="px-4 md:px-6 py-4">STT</th>
+                        <th className="px-4 md:px-6 py-4">Tên bài hát</th>
+                        <th className="px-6 py-4 hidden md:table-cell">Ngày tạo</th>
+                        <th className="px-4 md:px-6 py-4 text-right">Thao tác</th>
                       </>
                     )}
                     {activeSubTab === 'stories' && (
                       <>
-                        <th className="px-6 py-4">STT</th>
-                        <th className="px-6 py-4">Nội dung tóm tắt</th>
-                        <th className="px-6 py-4">Ngày tạo</th>
-                        <th className="px-6 py-4 text-right">Thao tác</th>
+                        <th className="px-4 md:px-6 py-4">STT</th>
+                        <th className="px-4 md:px-6 py-4">Nội dung tóm tắt</th>
+                        <th className="px-6 py-4 hidden md:table-cell">Ngày tạo</th>
+                        <th className="px-4 md:px-6 py-4 text-right">Thao tác</th>
                       </>
                     )}
                     {activeSubTab === 'users' && (
                       <>
-                        <th className="px-6 py-4">STT</th>
-                        <th className="px-6 py-4">Email</th>
-                        <th className="px-6 py-4">Quyền hạn</th>
-                        <th className="px-6 py-4 text-right">Thao tác</th>
+                        <th className="px-4 md:px-6 py-4">STT</th>
+                        <th className="px-4 md:px-6 py-4">Email</th>
+                        <th className="px-4 md:px-6 py-4">Quyền hạn</th>
+                        <th className="px-4 md:px-6 py-4 text-right">Thao tác</th>
                       </>
                     )}
                   </tr>
@@ -898,84 +949,84 @@ export const Management: React.FC<ManagementProps> = ({
                 <tbody className="divide-y divide-gray-100">
                   {activeSubTab === 'events' && events.filter(e => e.title.toLowerCase().includes(searchTerm.toLowerCase())).map((item, index) => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-gray-400">{index + 1}</td>
-                      <td className="px-6 py-4">
-                        <img src={item.photo_url} alt="" className="w-10 h-10 rounded-lg object-cover" referrerPolicy="no-referrer" />
+                      <td className="px-4 md:px-6 py-4 font-bold text-gray-400 text-xs">{index + 1}</td>
+                      <td className="px-4 md:px-6 py-4">
+                        <img src={item.photo_url} alt="" className="w-8 h-8 md:w-10 md:h-10 rounded-lg object-cover shadow-sm" referrerPolicy="no-referrer" />
                       </td>
-                      <td className="px-6 py-4 font-bold text-gray-700">{item.title}</td>
-                      <td className="px-6 py-4 text-gray-500">{formatDate(item.date)}</td>
-                      <td className="px-6 py-4 text-gray-400 text-xs">{formatDate(item.created_at, true)}</td>
-                      <td className="px-6 py-4 text-right space-x-2">
-                        <button onClick={() => { setEditingItem(item); setIsEventModalOpen(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit size={16} /></button>
-                        <button onClick={() => handleDelete('events', item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                      <td className="px-4 md:px-6 py-4 font-bold text-gray-700 text-xs md:text-sm">{item.title}</td>
+                      <td className="px-4 md:px-6 py-4 text-[10px] md:text-sm text-gray-500 font-medium">{formatDate(item.date)}</td>
+                      <td className="px-6 py-4 text-gray-400 text-[10px] hidden md:table-cell">{formatDate(item.created_at, true)}</td>
+                      <td className="px-4 md:px-6 py-4 text-right space-x-1 md:space-x-2">
+                        <button onClick={() => { setEditingItem(item); setIsEventModalOpen(true); }} className="p-1.5 md:p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit size={14} className="md:w-4 md:h-4" /></button>
+                        <button onClick={() => handleDelete('events', item.id)} className="p-1.5 md:p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={14} className="md:w-4 md:h-4" /></button>
                       </td>
                     </tr>
                   ))}
                   {activeSubTab === 'gallery' && gallery.filter(p => p.description.toLowerCase().includes(searchTerm.toLowerCase())).map((item, index) => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-gray-400">{index + 1}</td>
-                      <td className="px-6 py-4">
-                        <img src={item.photo_url} alt="" className="w-10 h-10 rounded-lg object-cover" referrerPolicy="no-referrer" />
+                      <td className="px-4 md:px-6 py-4 font-bold text-gray-400 text-xs">{index + 1}</td>
+                      <td className="px-4 md:px-6 py-4">
+                        <img src={item.photo_url} alt="" className="w-8 h-8 md:w-10 md:h-10 rounded-lg object-cover shadow-sm" referrerPolicy="no-referrer" />
                       </td>
-                      <td className="px-6 py-4 font-bold text-gray-700 truncate max-w-[200px]">{item.description}</td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 md:px-6 py-4 font-bold text-gray-700 text-xs md:text-sm truncate max-w-[120px] md:max-w-[200px]">{item.description}</td>
+                      <td className="px-6 py-4 hidden md:table-cell">
                         <div className="flex flex-wrap gap-1">
                           {item.tags?.map((tag: string, i: number) => (
                             <span key={i} className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-bold">#{tag}</span>
                           ))}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-gray-400 text-xs">{formatDate(item.created_at, true)}</td>
-                      <td className="px-6 py-4 text-right space-x-2">
-                        <button onClick={() => { setEditingItem(item); setIsPhotoModalOpen(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit size={16} /></button>
-                        <button onClick={() => handleDelete('gallery', item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                      <td className="px-6 py-4 text-gray-400 text-[10px] hidden md:table-cell">{formatDate(item.created_at, true)}</td>
+                      <td className="px-4 md:px-6 py-4 text-right space-x-1 md:space-x-2">
+                        <button onClick={() => { setEditingItem(item); setIsPhotoModalOpen(true); }} className="p-1.5 md:p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit size={14} className="md:w-4 md:h-4" /></button>
+                        <button onClick={() => handleDelete('gallery', item.id)} className="p-1.5 md:p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={14} className="md:w-4 md:h-4" /></button>
                       </td>
                     </tr>
                   ))}
                   {activeSubTab === 'music' && music.filter(m => m.title.toLowerCase().includes(searchTerm.toLowerCase())).map((item, index) => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-gray-400">{index + 1}</td>
-                      <td className="px-6 py-4 font-bold text-gray-700">{item.title}</td>
-                      <td className="px-6 py-4 text-gray-400 text-xs">{formatDate(item.created_at, true)}</td>
-                      <td className="px-6 py-4 text-right space-x-2">
-                        <button onClick={() => { setEditingItem(item); setIsMusicModalOpen(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit size={16} /></button>
-                        <button onClick={() => handleDelete('music_playlist', item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                      <td className="px-4 md:px-6 py-4 font-bold text-gray-400 text-xs">{index + 1}</td>
+                      <td className="px-4 md:px-6 py-4 font-bold text-gray-700 text-xs md:text-sm">{item.title}</td>
+                      <td className="px-6 py-4 text-gray-400 text-[10px] hidden md:table-cell">{formatDate(item.created_at, true)}</td>
+                      <td className="px-4 md:px-6 py-4 text-right space-x-1 md:space-x-2">
+                        <button onClick={() => { setEditingItem(item); setIsMusicModalOpen(true); }} className="p-1.5 md:p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit size={14} className="md:w-4 md:h-4" /></button>
+                        <button onClick={() => handleDelete('music_playlist', item.id)} className="p-1.5 md:p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={14} className="md:w-4 md:h-4" /></button>
                       </td>
                     </tr>
                   ))}
                   {activeSubTab === 'stories' && stories.filter(s => s.content.toLowerCase().includes(searchTerm.toLowerCase())).map((item, index) => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-gray-400">{index + 1}</td>
-                      <td className="px-6 py-4 font-bold text-gray-700 truncate max-w-[400px]">{item.content.substring(0, 100)}...</td>
-                      <td className="px-6 py-4 text-gray-400 text-xs">{formatDate(item.created_at, true)}</td>
-                      <td className="px-6 py-4 text-right space-x-2">
-                        <button onClick={() => handleDelete('stories', item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                      <td className="px-4 md:px-6 py-4 font-bold text-gray-400 text-xs">{index + 1}</td>
+                      <td className="px-4 md:px-6 py-4 font-bold text-gray-700 text-xs md:text-sm truncate max-w-[200px] md:max-w-[400px]">{item.content.substring(0, 100)}...</td>
+                      <td className="px-6 py-4 text-gray-400 text-[10px] hidden md:table-cell">{formatDate(item.created_at, true)}</td>
+                      <td className="px-4 md:px-6 py-4 text-right">
+                        <button onClick={() => handleDelete('stories', item.id)} className="p-1.5 md:p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={14} className="md:w-4 md:h-4" /></button>
                       </td>
                     </tr>
                   ))}
                   {activeSubTab === 'users' && users.filter(u => u.email.toLowerCase().includes(searchTerm.toLowerCase())).map((user, index) => (
                     <tr key={user.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-gray-400">{index + 1}</td>
-                      <td className="px-6 py-4 font-bold text-gray-700">{user.email}</td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 md:px-6 py-4 font-bold text-gray-400 text-xs">{index + 1}</td>
+                      <td className="px-4 md:px-6 py-4 font-bold text-gray-700 text-xs md:text-sm">{user.email}</td>
+                      <td className="px-4 md:px-6 py-4">
                         <select
                           value={user.role}
                           onChange={(e) => handleUpdateRole(user.id, e.target.value as UserRole)}
-                          className="bg-gray-50 border-none rounded-lg text-xs font-bold p-2 focus:ring-2 focus:ring-primary/20"
+                          className="bg-gray-50 border-none rounded-lg text-[10px] md:text-xs font-black p-1.5 md:p-2 focus:ring-2 focus:ring-primary/20"
                         >
                           <option value="none">None</option>
                           <option value="vip">VIP</option>
                           <option value="admin">Admin</option>
                         </select>
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-4 md:px-6 py-4 text-right">
                         {user.id !== userId && (
                           <button 
                             onClick={() => handleDeleteUser(user.id, user.email)}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            className="p-1.5 md:p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                             title="Xóa tài khoản"
                           >
-                            <Trash2 size={16} />
+                            <Trash2 size={14} className="md:w-4 md:h-4" />
                           </button>
                         )}
                       </td>

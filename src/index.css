@@ -147,12 +147,21 @@ img {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--primary-color);
+  background: #e5e7eb;
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #f87171;
+  background: #d1d5db;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
 }
 
 .custom-scrollbar::-webkit-scrollbar {

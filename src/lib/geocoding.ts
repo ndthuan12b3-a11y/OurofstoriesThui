@@ -15,7 +15,7 @@ interface NominatimResponse {
 
 export const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
   try {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=vi`;
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=vi&email=AlanwalkerT2002@gmail.com`;
     const response = await fetch(url);
     
     if (!response.ok) return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
@@ -41,7 +41,7 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<string> 
 
 export const searchGeocode = async (query: string, bias?: { lat: number, lng: number }): Promise<any[]> => {
   try {
-    let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10&accept-language=vi`;
+    let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10&accept-language=vi&email=AlanwalkerT2002@gmail.com`;
     if (bias) {
       const b = 1.0; 
       const viewbox = `${bias.lng - b},${bias.lat + b},${bias.lng + b},${bias.lat - b}`;
@@ -53,7 +53,7 @@ export const searchGeocode = async (query: string, bias?: { lat: number, lng: nu
     if (!response.ok) return [];
     return await response.json();
   } catch (error) {
-    console.error("Search geocode failed:", error);
+    console.warn("Search geocode failed:", error);
     return [];
   }
 };

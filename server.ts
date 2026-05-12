@@ -71,27 +71,133 @@ async function startServer() {
 
       console.log(`[Traccar API] ${new Date().toISOString()} - Device ID: ${id}, Position: ${latitude}, ${longitude}`);
 
-      // Perform upsert into 'locations' table
-      // We use the service role key (initialized above) to bypass RLS and ensure reliability
-      const { error } = await supabase
+      // Perform primary upsert into 'locations' table IMMEDIATELY for speed
+      const { error: upsertError } = await supabase
         .from('locations')
         .upsert({
           user_id: id,
           lat: latitude,
           lng: longitude,
-          updated_at: updatedAt
+          updated_at: updatedAt,
         }, { onConflict: 'user_id' });
 
-      if (error) {
-        console.error("[Traccar API] Supabase Error:", error.message);
-        return res.status(500).send("Database error");
+      if (upsertError) {
+        console.error("[Traccar API] Supabase Upsert Error:", upsertError.message);
       }
 
-      // Traccar Client expects a plain text "OK" response
+      // Start background geocoding WITHOUT awaiting it to not block the response
+      (async () => {
+        try {
+          // Optimization: Fetch current address to compare
+          const { data: currentLoc } = await supabase
+            .from('locations')
+            .select('lat, lng, address')
+            .eq('user_id', id)
+            .maybeSingle();
+
+          // If current address exists and movement is tiny (< 5m), skip geocoding
+          if (currentLoc?.address && currentLoc.lat && currentLoc.lng) {
+            const dLat = latitude - Number(currentLoc.lat);
+            const dLng = longitude - Number(currentLoc.lng);
+            const distSq = (dLat * dLat) + (dLng * dLng);
+            if (distSq < 0.0000000002) { // approx 5m squared
+              return;
+            }
+          }
+
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+            {
+              headers: { 'User-Agent': 'Traccar-Optimizer-App' }
+            }
+          );
+          if (response.ok) {
+            const geoData = await response.json() as any;
+            const addr = geoData.address || {};
+            
+            // Compose a short address: [number] [road]
+            // Favor short components for brevity
+            const shortAddress = [
+              addr.house_number || addr.building,
+              addr.road || addr.pedestrian || addr.suburb || addr.neighbourhood
+            ].filter(Boolean).join(" ");
+
+            const address = shortAddress || geoData.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+            
+            // Update address in background
+            await supabase
+              .from('locations')
+              .update({ address: address })
+              .eq('user_id', id);
+          }
+        } catch (geoErr) {
+          console.warn("[Traccar API] Background geocoding failed:", geoErr);
+        }
+      })();
+
+      // Respond "OK" immediately to Traccar Client
       res.status(200).send("OK");
     } catch (err) {
       console.error("[Traccar API] Critical error:", err);
       res.status(500).send("Internal server error");
+    }
+  });
+
+  /**
+   * API Route for Browser-based updates
+   * Unifies geocoding logic with Traccar logic.
+   */
+  app.post("/api/location/update", express.json(), async (req, res) => {
+    try {
+      const { user_id, lat, lng } = req.body;
+      if (!user_id || lat === undefined || lng === undefined) {
+        return res.status(400).json({ error: "Missing parameters" });
+      }
+
+      // 1. Update coordinates immediately
+      const { error: upsertError } = await supabase
+        .from('locations')
+        .upsert({
+          user_id,
+          lat,
+          lng,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id' });
+
+      if (upsertError) throw upsertError;
+
+      // 2. Respond immediately
+      res.json({ status: "ok" });
+
+      // 3. Background Geocoding
+      (async () => {
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+            { headers: { 'User-Agent': 'Traccar-Optimizer-App' } }
+          );
+          if (response.ok) {
+            const geoData = await response.json() as any;
+            const addr = geoData.address || {};
+            
+            // Compose a short address: [number] [road]
+            const shortAddress = [
+              addr.house_number || addr.building,
+              addr.road || addr.pedestrian || addr.suburb || addr.neighbourhood
+            ].filter(Boolean).join(" ");
+
+            const address = shortAddress || geoData.display_name || "";
+            if (address) {
+              await supabase.from('locations').update({ address }).eq('user_id', user_id);
+            }
+          }
+        } catch (e) {
+          console.warn("[API Update] Geocoding background fail:", e);
+        }
+      })();
+    } catch (err) {
+      console.error("[API Update] Error:", err);
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 

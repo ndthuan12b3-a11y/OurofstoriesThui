@@ -28,34 +28,25 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
       }
       
       try {
-        const timestamp = new Date().toISOString();
-        
         // Cache locally for the UI to use instantly
         localStorage.setItem(`last_loc_${userId}`, JSON.stringify([lat, lng]));
 
-        const locationData = {
-          user_id: userId,
-          lat: lat,
-          lng: lng,
-          updated_at: timestamp
-        };
+        const response = await fetch('/api/location/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: userId,
+            lat: lat,
+            lng: lng
+          })
+        });
 
-        // Ưu tiên Upsert dựa trên user_id
-        const { error } = await supabase
-          .from('locations')
-          .upsert(locationData, { onConflict: 'user_id' });
-        
-        if (error) {
-          console.error("Error updating location in DB:", error);
-          
-          if (error.code === '23502' || error.code === '23505' || error.code === '42P10') {
-            console.log("Attempting fallback: Delete then Insert...");
-            await supabase.from('locations').delete().eq('user_id', userId);
-            await supabase.from('locations').insert(locationData);
-          }
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          console.error("API update error:", errData);
         }
       } catch (err) {
-        console.error("Location update critical failure:", err);
+        console.error("Location update API failure:", err);
       }
     };
 
@@ -63,6 +54,14 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
 
     const startWatching = () => {
       if ("geolocation" in navigator) {
+        // 1. Lấy vị trí ngay lập tức (phản ứng nhanh)
+        navigator.geolocation.getCurrentPosition(
+          (pos) => updateLocationInDB(pos.coords.latitude, pos.coords.longitude),
+          (err) => console.warn("Initial position error:", err),
+          { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+        );
+
+        // 2. Theo dõi liên tục (độ chính xác cao)
         watchId = navigator.geolocation.watchPosition(
           async (position) => {
             const { latitude, longitude, accuracy } = position.coords;
@@ -74,15 +73,15 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
               return;
             }
 
-            // Throttling for DB: Update DB every 15s hoặc di chuyển > 5m
+            // Throttling for DB: Update DB every 10s hoặc di chuyển > 2m
             const shouldUpdateDB = () => {
               if (!lastPosRef.current) return true;
-              if (now - lastUpdateRef.current > 15000) return true;
+              if (now - lastUpdateRef.current > 10000) return true;
               
               const dLat = latitude - lastPosRef.current[0];
               const dLng = longitude - lastPosRef.current[1];
               const distSq = dLat*dLat + dLng*dLng;
-              return distSq > 0.000000002; // ~5 meters squared
+              return distSq > 0.0000000005; // ~2 meters squared (increased sensitivity)
             };
 
             if (shouldUpdateDB()) {
@@ -112,9 +111,11 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
       if (document.visibilityState === 'visible') {
         console.log("Tab focused, refreshing location...");
         if ("geolocation" in navigator) {
-          navigator.geolocation.getCurrentPosition((pos) => {
-            updateLocationInDB(pos.coords.latitude, pos.coords.longitude);
-          }, undefined, { enableHighAccuracy: false });
+          navigator.geolocation.getCurrentPosition(
+            (pos) => updateLocationInDB(pos.coords.latitude, pos.coords.longitude),
+            (err) => console.warn("Visibility refresh error:", err),
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+          );
         }
       }
     };

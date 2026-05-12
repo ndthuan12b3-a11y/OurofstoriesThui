@@ -57,6 +57,7 @@ export default function App() {
   const [passcode, setPasscode] = useState('');
   const [isBgLoaded, setIsBgLoaded] = useState(false);
   const [events, setEvents] = useState<any[]>([]);
+  const [selectedMapEvent, setSelectedMapEvent] = useState<any>(null);
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -257,7 +258,7 @@ export default function App() {
         }
       }
     } catch (e) {
-      console.error("Lỗi khi tải cấu hình:", e);
+      console.warn("Lỗi khi tải cấu hình:", e);
     }
   };
 
@@ -391,6 +392,7 @@ export default function App() {
           userRole={userRole}
           onLogout={handleLogout}
           userProfile={userProfile}
+          config={config}
         />
 
         <main className="flex-grow md:ml-16 p-4 md:p-12 pb-32 md:pb-12">
@@ -415,7 +417,14 @@ export default function App() {
                   )}
                   {activeTab === 'timeline' && (
                     <div id="timeline-container">
-                      <Timeline config={config} userRole={userRole} />
+                      <Timeline 
+                        config={config} 
+                        userRole={userRole} 
+                        onViewOnMap={(event) => {
+                          setSelectedMapEvent(event);
+                          setActiveTab('map');
+                        }}
+                      />
                     </div>
                   )}
                   {activeTab === 'map' && (
@@ -425,6 +434,9 @@ export default function App() {
                         config={config} 
                         userId={session?.user?.id} 
                         userProfile={userProfile} 
+                        externalSelectedEvent={selectedMapEvent}
+                        onExternalEventConsumed={() => setSelectedMapEvent(null)}
+                        setActiveTab={setActiveTab}
                       />
                     </div>
                   )}
@@ -434,6 +446,7 @@ export default function App() {
                       config={config} 
                       onConfigUpdate={handleConfigUpdate} 
                       userId={session?.user?.id}
+                      userEmail={session?.user?.email}
                       userProfile={userProfile}
                       onProfileUpdate={handleConfigUpdate}
                     />
