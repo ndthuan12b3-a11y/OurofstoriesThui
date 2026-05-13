@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { MapPin, Calendar, BookOpen, X, Maximize2, Minimize2, Navigation as NavIcon, ChevronRight, List, Zap, User, Plus, Minus, Home } from 'lucide-react';
 import { AppConfig, Database } from '../types';
 import { getOptimizedImageUrl } from '../lib/imageUtils';
+import { cleanAddress } from '../lib/utils';
 import { useMapLogic, TrackedUser } from '../hooks/useMapLogic';
 import { showNotification } from '../lib/notifications';
 
@@ -68,7 +69,7 @@ const SmoothMarker = ({ position, icon, children }: {
 
       const dfLat = tarLat - curLat;
       const dfLng = tarLng - curLng;
-      const factor = 0.04; // Animation speed
+      const factor = 0.12; // Snappier tracking
       
       if (Math.abs(dfLat) < 0.0000001 && Math.abs(dfLng) < 0.0000001) {
         if (markerRef.current) {
@@ -136,20 +137,20 @@ const CustomMarker = React.memo(({ id, position, imageUrl, isOffline, color = 'r
     className: 'custom-div-icon',
     html: `
       <div class="relative group animate-marker-breath flex flex-col items-center w-12 h-[60px]" style="will-change: transform;">
-        <div class="relative w-12 h-12 bg-white rounded-[14px] shadow-xl z-20 flex items-center justify-center p-[2px]" style="border: 3px solid ${color === 'rose' ? '#fb7185' : '#60a5fa'}">
+        <div class="relative w-12 h-12 bg-white rounded-[14px] shadow-2xl z-20 flex items-center justify-center p-[2px]" style="border: 3px solid ${color === 'rose' ? '#fb7185' : '#60a5fa'}">
           <div style="width: 100%; height: 100%; border-radius: 9px; overflow: hidden; background-color: #f3f4f6; position: relative;">
             <img src="${encodeURI(imageUrl)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'" />
           </div>
           ${!isOffline ? `
-            <div class="absolute -right-1.5 -top-1.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white z-30"></div>
+            <div class="absolute -right-1.5 -top-1.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white z-30 ring-2 ring-green-500/20"></div>
           ` : ''}
         </div>
         <!-- Triangle Tail -->
         <div class="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px]" style="border-top-color: ${color === 'rose' ? '#fb7185' : '#60a5fa'}; margin-top: -1px; z-index: 10;"></div>
         
         ${!isOffline ? `
-          <div class="absolute top-0 left-0 w-12 h-12 rounded-[14px] ${pingColor} animate-ping -z-10"></div>
-          <div class="absolute -inset-[2px] rounded-[16px] border-2 ${pulseBorder} animate-marker-pulse -z-10"></div>
+          <div class="absolute top-0 left-0 w-12 h-12 rounded-[14px] ${pingColor} animate-ping -z-10 scale-125"></div>
+          <div class="absolute -inset-[3px] rounded-[17px] border-2 ${pulseBorder} animate-marker-pulse -z-10 blur-[1px]"></div>
         ` : ''}
       </div>
     `,
@@ -171,7 +172,7 @@ const CustomMarker = React.memo(({ id, position, imageUrl, isOffline, color = 'r
              <div className="flex flex-col gap-1">
                 {address ? (
                   <p className="text-[11px] font-black text-gray-900 leading-tight bg-gray-50 p-2 rounded-xl border border-gray-100">
-                    {address}
+                    {cleanAddress(address)}
                   </p>
                 ) : (
                   <p className="text-[10px] text-gray-400 italic">
@@ -264,7 +265,7 @@ const MemoryMarker = React.memo(({ item, onSelect }: { item: Event, onSelect: (i
               {new Date(item.date).toLocaleDateString('vi-VN')}
             </p>
             <h4 className="text-xs font-black text-gray-800 line-clamp-1 mb-1 uppercase tracking-tight">{item.title}</h4>
-            <p className="text-[10px] text-gray-500 line-clamp-2 leading-tight">{(item.location as any)?.address_name || item.description}</p>
+            <p className="text-[10px] text-gray-500 line-clamp-2 leading-tight">{cleanAddress((item.location as any)?.address_name) || item.description}</p>
           </div>
         </div>
       </Popup>
@@ -413,6 +414,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({
   } = useMapLogic(userId, config);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mapStyle, setMapStyle] = useState<'standard' | 'hybrid'>('hybrid');
   const [showList, setShowList] = useState(true);
   const [selectedItem, setSelectedItem] = useState<Event | null>(null);
   const [flyToCoords, setFlyToCoords] = useState<[number, number] | null>(null);
@@ -602,7 +604,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({
                     </div>
                     <div className="flex flex-col gap-0.5 mt-1">
                       <p className={`text-[10px] leading-tight font-black tracking-tight ${!user.address ? 'text-gray-400' : 'text-gray-900 bg-gray-900/5 px-1.5 py-0.5 rounded-md inline-block'}`}>
-                        {user.address || (onlineUsers.includes(user.user_id) ? `Đang tìm số nhà...` : `${user.lat.toFixed(5)}, ${user.lng.toFixed(5)}`)}
+                        {cleanAddress(user.address) || (onlineUsers.includes(user.user_id) ? `Đang tìm số nhà...` : `${user.lat.toFixed(5)}, ${user.lng.toFixed(5)}`)}
                       </p>
                       {user.user_id !== userId && distance && (
                         <p className="text-[9px] font-black text-rose-500 flex items-center gap-1 tracking-tighter mt-0.5">
@@ -643,7 +645,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({
                       {item.title}
                     </h4>
                     <p className={`text-[8px] truncate font-medium ${selectedItem?.id === item.id ? 'text-rose-100' : 'text-gray-400'}`}>
-                      {new Date(item.date).toLocaleDateString('vi', { day: '2-digit', month: '2-digit' })} • {(item.location as any)?.address_name || 'Không rõ địa chỉ'}
+                      {new Date(item.date).toLocaleDateString('vi', { day: '2-digit', month: '2-digit' })} • {cleanAddress((item.location as any)?.address_name) || 'Không rõ địa chỉ'}
                     </p>
                   </div>
                 </motion.button>
@@ -675,6 +677,12 @@ export const StoryMap: React.FC<StoryMapProps> = ({
 
           <div className="flex items-center gap-1.5 p-1 bg-white/10 backdrop-blur-xl rounded-full border border-white/20 shadow-xl shadow-black/5 pointer-events-auto">
             <button 
+              onClick={() => setMapStyle(mapStyle === 'standard' ? 'hybrid' : 'standard')}
+              className={`px-3 py-1 text-[8px] font-black uppercase tracking-widest rounded-full transition-all ${mapStyle === 'hybrid' ? 'bg-primary text-white' : 'text-gray-600 hover:bg-white/20'}`}
+            >
+              {mapStyle === 'hybrid' ? 'Hybrid' : 'Normal'}
+            </button>
+            <button 
               onClick={() => setIsFullscreen(!isFullscreen)}
               className="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 hover:bg-white/20 transition-all"
               title={isFullscreen ? "Thu nhỏ" : "Toàn màn hình"}
@@ -699,10 +707,19 @@ export const StoryMap: React.FC<StoryMapProps> = ({
           zoomControl={false}
           preferCanvas={true}
         >
-          <TileLayer
-            attribution="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors"
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
+          {mapStyle === 'hybrid' ? (
+            <TileLayer
+              attribution="&copy; Google Maps"
+              url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+              maxZoom={20}
+              subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
+            />
+          ) : (
+            <TileLayer
+              attribution="&copy; OpenStreetMap"
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+          )}
 
           <InvalidateSizeHandler trigger={showList || isFullscreen} />
 
@@ -780,7 +797,7 @@ export const StoryMap: React.FC<StoryMapProps> = ({
       {!isFullscreen && !showList && (
         <div className="absolute bottom-6 left-6 z-[1000] max-w-[200px] hidden md:block">
           <p className="text-[8px] font-bold text-gray-400 bg-white/50 backdrop-blur-sm px-3 py-1.5 rounded-full inline-block">
-            Sử dụng OpenStreetMap & Leaflet
+            {mapStyle === 'hybrid' ? 'Google Maps Hybrid' : 'OpenStreetMap'}
           </p>
         </div>
       )}

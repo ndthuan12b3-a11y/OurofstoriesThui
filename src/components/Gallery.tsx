@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { formatDate, cn } from '../lib/utils';
-import { getOptimizedImageUrl, getThumbnailUrl } from '../lib/imageUtils';
+import { getOptimizedImageUrl, getThumbnailUrl, compressImage } from '../lib/imageUtils';
 import { AppConfig } from '../types';
 import { GallerySkeleton } from './Skeleton';
 import { Modal } from './Modal';
@@ -70,8 +70,9 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
       setLoading(true);
       const { data } = await supabase
         .from('gallery')
-        .select('*')
-        .order('created_at', { ascending: false }) as any;
+        .select('id, description, photo_url, tags, created_at')
+        .order('created_at', { ascending: false })
+        .limit(100); // Limit total fetching for now to save egress
       
       if (data) {
         setPhotos(data);
@@ -86,7 +87,17 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
 
     const channel = supabase
       .channel('gallery-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'gallery' }, fetchPhotos)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gallery' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const newPhoto = payload.new as Photo;
+          setPhotos(prev => [newPhoto, ...prev]);
+        } else if (payload.eventType === 'UPDATE') {
+          const updatedPhoto = payload.new as Photo;
+          setPhotos(prev => prev.map(p => p.id === updatedPhoto.id ? updatedPhoto : p));
+        } else if (payload.eventType === 'DELETE') {
+          setPhotos(prev => prev.filter(p => p.id === payload.old.id));
+        }
+      })
       .subscribe();
 
     return () => {
@@ -224,7 +235,9 @@ export const Gallery: React.FC<GalleryProps> = ({ config, userRole }) => {
 
     setUploading(true);
     try {
-      const photoUrl = await handleFileUpload(uploadForm.photoFile);
+      // Compress image before upload
+      const compressedFile = await compressImage(uploadForm.photoFile);
+      const photoUrl = await handleFileUpload(compressedFile);
       if (!photoUrl) throw new Error("Upload failed");
 
       const { error } = await supabase.from('gallery').insert([{

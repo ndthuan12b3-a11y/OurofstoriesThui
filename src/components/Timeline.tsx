@@ -4,8 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '../lib/supabase';
-import { formatDate, calculateDays, cn } from '../lib/utils';
-import { getOptimizedImageUrl } from '../lib/imageUtils';
+import { formatDate, calculateDays, cn, cleanAddress } from '../lib/utils';
+import { getOptimizedImageUrl, compressImage } from '../lib/imageUtils';
 import { AppConfig } from '../types';
 import { 
   Heart, Lock, Sparkles, Calendar, Camera, MapPin, X, Info, Plus, 
@@ -83,7 +83,7 @@ const EventItem = React.memo(({ event, index, onClick }: { event: Event; index: 
         </div>
         
         <div className="flex items-center gap-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">
-          <span className="flex items-center gap-1.5"><MapPin size={10} className="text-blue-300" /> {event.location?.address_name || "Khoảnh khắc"}</span>
+          <span className="flex items-center gap-1.5"><MapPin size={10} className="text-blue-300" /> {cleanAddress(event.location?.address_name) || "Khoảnh khắc"}</span>
           <span className="flex items-center gap-1.5 ml-auto text-rose-300 group-hover:translate-x-1 transition-transform">Xem chi tiết <ChevronRight size={10} /></span>
         </div>
       </div>
@@ -261,8 +261,9 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole, onViewOnMa
       setLoading(true);
       const { data } = await supabase
         .from('events')
-        .select('*')
-        .order('date', { ascending: false });
+        .select('id, title, description, date, photo_url, location, created_at')
+        .order('date', { ascending: false })
+        .limit(100);
       if (data) setEvents(data);
       setLoading(false);
     };
@@ -288,7 +289,17 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole, onViewOnMa
 
     const channel = supabase
       .channel('events-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, fetchEvents)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const newEvent = payload.new as Event;
+          setEvents(prev => [newEvent, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+        } else if (payload.eventType === 'UPDATE') {
+          const updatedEvent = payload.new as Event;
+          setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+        } else if (payload.eventType === 'DELETE') {
+          setEvents(prev => prev.filter(e => e.id === payload.old.id));
+        }
+      })
       .subscribe();
 
     const storiesChannel = supabase
@@ -331,7 +342,9 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole, onViewOnMa
 
     setUploading(true);
     try {
-      const photoUrl = await handleFileUpload(uploadForm.photoFile);
+      // Compress image before upload
+      const compressedFile = await compressImage(uploadForm.photoFile);
+      const photoUrl = await handleFileUpload(compressedFile);
       if (!photoUrl) throw new Error("Upload failed");
 
       const { error } = await supabase.from('events').insert([{
@@ -714,7 +727,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole, onViewOnMa
                             </div>
                             <div className="min-w-0 flex-grow">
                               <p className="text-[10px] font-black uppercase tracking-widest text-gray-300">Địa điểm</p>
-                              <p className="text-[11px] font-bold text-gray-700 truncate">{selectedEvent.location.address_name}</p>
+                              <p className="text-[11px] font-bold text-gray-700 truncate">{cleanAddress(selectedEvent.location.address_name)}</p>
                             </div>
                           </div>
                           <button 

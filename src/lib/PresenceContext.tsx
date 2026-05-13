@@ -29,7 +29,7 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
       // Find the most recent location update from anyone else
       const { data, error } = await supabase
         .from('locations')
-        .select('*')
+        .select('lat, lng, updated_at')
         .neq('user_id', userId)
         .order('updated_at', { ascending: false })
         .limit(1)
@@ -54,7 +54,7 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
     };
 
     fetchOtherStatus();
-    const interval = setInterval(fetchOtherStatus, 30000); // Poll every 30s
+    const interval = setInterval(fetchOtherStatus, 120000); // Poll every 2 mins (Presence handles realtime)
     return () => clearInterval(interval);
   }, [userId]);
 

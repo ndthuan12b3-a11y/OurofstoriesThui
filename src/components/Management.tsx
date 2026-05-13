@@ -10,6 +10,7 @@ import {
 import { showNotification } from '../lib/notifications';
 import { Modal } from './Modal';
 import { cn, formatDate } from '../lib/utils';
+import { compressImage } from '../lib/imageUtils';
 import { useMusic, useMusicProgress } from '../lib/MusicContext';
 import { Play, Pause, SkipBack, SkipForward, Repeat } from 'lucide-react';
 
@@ -173,7 +174,8 @@ export const Management: React.FC<ManagementProps> = ({
     try {
       let avatarUrl = userProfile?.avatar_url;
       if (personalAvatarFile) {
-        const url = await handleFileUpload(personalAvatarFile, 'profiles');
+        const compressedFile = await compressImage(personalAvatarFile);
+        const url = await handleFileUpload(compressedFile, 'profiles');
         if (url) avatarUrl = url;
       }
 
@@ -238,7 +240,8 @@ export const Management: React.FC<ManagementProps> = ({
     setLoading(true);
     let bgImageUrl = configForm.background_image_url;
     if (bgImageFile) {
-      const url = await handleFileUpload(bgImageFile, 'config');
+      const compressedFile = await compressImage(bgImageFile);
+      const url = await handleFileUpload(compressedFile, 'config');
       if (url) bgImageUrl = url;
     }
 
@@ -292,7 +295,8 @@ export const Management: React.FC<ManagementProps> = ({
     setLoading(true);
     let photoUrl = editingItem?.photo_url;
     if (eventForm.photoFile) {
-      const url = await handleFileUpload(eventForm.photoFile, 'events');
+      const compressedFile = await compressImage(eventForm.photoFile);
+      const url = await handleFileUpload(compressedFile, 'events');
       if (url) photoUrl = url;
     }
     
@@ -326,7 +330,8 @@ export const Management: React.FC<ManagementProps> = ({
     setLoading(true);
     let photoUrl = editingItem?.photo_url;
     if (photoForm.photoFile) {
-      const url = await handleFileUpload(photoForm.photoFile, 'gallery');
+      const compressedFile = await compressImage(photoForm.photoFile);
+      const url = await handleFileUpload(compressedFile, 'gallery');
       if (url) photoUrl = url;
     }
     

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { usePresence } from '../lib/PresenceContext';
+import { cleanAddress } from '../lib/utils';
 import { AppConfig } from '../types';
 
 export interface TrackedUser {
@@ -28,24 +29,28 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
     const fetchAllData = async () => {
       try {
         // Fetch Admin/Config creator ID to map male/female names deterministically
-        const { data: configData } = await supabase.from('config').select('user_id').limit(1).maybeSingle();
-        if (configData?.user_id) creatorId = configData.user_id;
-
-        // 1. Fetch Profiles
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('user_id, avatar_url');
-        
-        if (profiles) {
-          profiles.forEach(p => {
-            profilesMap[p.user_id] = p;
-          });
+        if (!creatorId) {
+          const { data: configData } = await supabase.from('config').select('user_id').limit(1).maybeSingle();
+          if (configData?.user_id) creatorId = configData.user_id;
         }
 
-        // 2. Fetch Locations
+        // 1. Fetch Profiles (Only if not already cached)
+        if (Object.keys(profilesMap).length === 0) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('user_id, avatar_url');
+          
+          if (profiles) {
+            profiles.forEach(p => {
+              profilesMap[p.user_id] = p;
+            });
+          }
+        }
+
+        // 2. Fetch Locations (Only necessary columns)
         const { data: locations } = await supabase
           .from('locations')
-          .select('*');
+          .select('user_id, lat, lng, updated_at, address');
         
         if (locations) {
           const newTrackedUsers: Record<string, TrackedUser> = {};
@@ -67,7 +72,7 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
             if (creatorId) {
               name = loc.user_id === creatorId ? config.name_female : config.name_male;
             } else {
-              const sortedIds = profiles ? profiles.map(p => p.user_id).sort() : [];
+              const sortedIds = Object.keys(profilesMap).sort();
               if (sortedIds[0] === loc.user_id) name = config.name_female;
               else name = config.name_male;
             }
@@ -86,7 +91,8 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
           setTrackedUsers(newTrackedUsers);
         }
       } catch (err) {
-        console.warn("Fetch initial data failed:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn("Fetch initial data failed:", msg);
       }
     };
 
@@ -183,14 +189,14 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
             updated_at: loc.updated_at || new Date().toISOString(),
             avatar_url: profile?.avatar_url || prev[uid]?.avatar_url || null,
             name: name || 'Người dùng',
-            address: address,
+            address: cleanAddress(address),
             isOnline: true
           }
         };
       });
     };
 
-    const interval = setInterval(fetchAllData, 30000); // 30s refresh fallback (increased frequency)
+    const interval = setInterval(fetchAllData, 120000); // 2 mins refresh fallback (Realtime handles precision)
 
     return () => {
       supabase.removeChannel(dbChannel);

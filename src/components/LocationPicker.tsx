@@ -4,6 +4,7 @@ import { Icon, LeafletMouseEvent } from 'leaflet';
 import { Search, MapPin, X, Navigation } from 'lucide-react';
 import { showNotification } from '../lib/notifications';
 import { reverseGeocode, searchGeocode } from '../lib/geocoding';
+import { cleanAddress } from '../lib/utils';
 
 // Fix for default Leaflet icon inclusion
 const defaultIcon = new Icon({
@@ -58,7 +59,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
         // Reverse geocode with wrapper
         reverseGeocode(lat, lng)
           .then(address => {
-            onChange({ lat, lng, address_name: address });
+            onChange({ lat, lng, address_name: cleanAddress(address) });
             setMapCenter([lat, lng]);
           });
       },
@@ -87,7 +88,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
         
         if (!isNaN(lat) && !isNaN(lng)) {
           setMapCenter([lat, lng]);
-          onChange({ lat, lng, address_name: first.display_name });
+          onChange({ lat, lng, address_name: cleanAddress(first.display_name) });
         }
       } else {
         showNotification("Không tìm thấy địa điểm này.", true);
@@ -114,7 +115,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
         
         reverseGeocode(latitude, longitude)
           .then(address => {
-            onChange({ lat: latitude, lng: longitude, address_name: address });
+            onChange({ lat: latitude, lng: longitude, address_name: cleanAddress(address) });
           })
           .finally(() => {
             setIsSearching(false);
@@ -139,7 +140,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange 
     const lat = parseFloat(result.lat);
     const lng = parseFloat(result.lon);
     if (!isNaN(lat) && !isNaN(lng)) {
-      onChange({ lat, lng, address_name: result.display_name });
+      onChange({ lat, lng, address_name: cleanAddress(result.display_name) });
       setMapCenter([lat, lng]);
       setSearchResults([]);
       setSearchQuery('');

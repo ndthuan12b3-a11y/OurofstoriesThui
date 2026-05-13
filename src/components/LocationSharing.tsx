@@ -78,8 +78,12 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
         // 1. Lấy vị trí ngay lập tức (phản ứng nhanh)
         navigator.geolocation.getCurrentPosition(
           (pos) => updateLocationInDB(pos.coords.latitude, pos.coords.longitude),
-          (err) => console.warn("Initial position error:", err),
-          { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+          (err) => {
+            if (err.code !== 3) {
+               console.warn(`Initial position error (Code ${err.code}): ${err.message}`);
+            }
+          },
+          { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
         );
 
         // 2. Theo dõi liên tục (độ chính xác cao)
@@ -94,15 +98,15 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
               return;
             }
 
-            // Throttling for DB: Update DB every 10s hoặc di chuyển > 2m
+            // Throttling for DB: Update DB every 30s hoặc di chuyển > 10m
             const shouldUpdateDB = () => {
               if (!lastPosRef.current) return true;
-              if (now - lastUpdateRef.current > 10000) return true;
+              if (now - lastUpdateRef.current > 30000) return true;
               
               const dLat = latitude - lastPosRef.current[0];
               const dLng = longitude - lastPosRef.current[1];
               const distSq = dLat*dLat + dLng*dLng;
-              return distSq > 0.0000000005; // ~2 meters squared (increased sensitivity)
+              return distSq > 0.00000001; // ~10 meters squared (decreased sensitivity for DB writes)
             };
 
             if (shouldUpdateDB()) {
@@ -118,9 +122,12 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
             window.dispatchEvent(new CustomEvent('location_accuracy', { detail: { accuracy } }));
           },
           (error) => {
-            console.warn("Geolocation watch error:", error);
+            const msg = error instanceof Error ? error.message : 
+                        (typeof error === 'object' && error !== null && 'message' in error) ? (error as any).message : 
+                        String(error);
+            console.warn(`Geolocation watch error (Code ${error.code || '?'}): ${msg}`);
           },
-          { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+          { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
         );
       }
     };
@@ -134,8 +141,15 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
         if ("geolocation" in navigator) {
           navigator.geolocation.getCurrentPosition(
             (pos) => updateLocationInDB(pos.coords.latitude, pos.coords.longitude),
-            (err) => console.warn("Visibility refresh error:", err),
-            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+            (err) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              if (err.code !== 3) { // 3 is Timeout, which is common on mobile wake-up
+                console.warn(`Visibility refresh error: ${msg}`);
+              } else {
+                console.debug("Visibility refresh timeout - ignoring");
+              }
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
           );
         }
       }

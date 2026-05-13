@@ -37,13 +37,14 @@ async function startServer() {
     // Combine query parameters (GET) and body data (POST)
     const data = { ...req.query, ...req.body };
     
-    // Extract core fields with multiple possible mappings for different Traccar clients
-    const id = data.id || data.uniqueId || data.deviceId || data.deviceid;
-    const lat = data.lat || data.latitude;
-    const lon = data.lon || data.longitude || data.lng;
-    const timestamp = data.timestamp || data.time;
+    // Extract core fields with multiple possible mappings for different clients (Traccar, FlowLocate, etc.)
+    const id = data.id || data.uniqueId || data.deviceId || data.deviceid || data.userId || data.user_id;
+    const lat = data.lat || data.latitude || data.location?.lat || data.location?.latitude;
+    const lon = data.lon || data.longitude || data.lng || data.location?.lng || data.location?.longitude;
+    const timestamp = data.timestamp || data.time || data.tst || data.updated_at || data.location?.timestamp;
+    const clientAddress = data.address || data.location?.address || data.addr;
 
-    console.log(`[Traccar Incoming] Raw: ${JSON.stringify(data)}`);
+    console.log(`[Incoming Location] Client: ${req.headers['user-agent'] || 'Unknown'}, ID: ${id}`);
 
     if (!id || !lat || !lon) {
       console.warn("[Traccar API] Missing core parameters (id, lat, lon)");
@@ -84,6 +85,10 @@ async function startServer() {
           lng: longitude,
           updated_at: updatedAt,
         };
+
+        if (clientAddress) {
+          upsertData.address = clientAddress;
+        }
 
         const { error: upsertError } = await supabase
           .from('locations')
@@ -126,6 +131,7 @@ async function startServer() {
               lat: latitude,
               lng: longitude,
               timestamp: updatedAt,
+              address: clientAddress || null
             });
         } catch (hErr) {}
       } else if (historyIdToUpdate) {
@@ -139,25 +145,26 @@ async function startServer() {
       }
 
       // Start background geocoding WITHOUT awaiting it
-      (async () => {
-        try {
-          // 1. GLOBAL Address Cache: Find ANY nearby record (any user) with a detailed address
-          // Search within 25m radius for cache hits
+      if (!clientAddress) {
+        (async () => {
+          try {
+          // 1. GLOBAL Address Cache: Find ANY nearby record with a detailed address
+          // Search within 10m radius for high precision house numbers
           const { data: nearbyCache } = await supabase
             .from('location_history')
             .select('address')
             .not('address', 'is', null)
-            .gte('lat', latitude - 0.00025)
-            .lte('lat', latitude + 0.00025)
-            .gte('lng', longitude - 0.00025)
-            .lte('lng', longitude + 0.00025)
+            .gte('lat', latitude - 0.0001)
+            .lte('lat', latitude + 0.0001)
+            .gte('lng', longitude - 0.0001)
+            .lte('lng', longitude + 0.0001)
             .order('timestamp', { ascending: false })
             .limit(1)
             .maybeSingle();
 
           if (nearbyCache && (nearbyCache as any).address) {
             const cachedAddr = (nearbyCache as any).address;
-            console.log(`[Traccar API] Cache Hit: ${cachedAddr}`);
+            console.log(`[Traccar API] Cache Hit (Precision): ${cachedAddr}`);
             if (isUUID(id)) {
               await supabase.from('locations').update({ address: cachedAddr }).eq('user_id', id);
             }
@@ -197,21 +204,25 @@ async function startServer() {
             const geoData = response.data;
             const addr = geoData.address || {};
             
-            const addressParts = [];
-            // Inclusive detection for house numbers and streets
-            const house = addr.house_number || addr.building || addr.house_name || addr.office || addr.apartment || addr.flat || addr.street_number || addr.unit || addr.floor;
-            const street = addr.road || addr.pedestrian || addr.path || addr.street || addr.lane || addr.square || addr.place || addr.terrace;
-            const block = addr.suburb || addr.neighbourhood || addr.village || addr.quarter || addr.hamlet || addr.allotments || addr.city_district;
-            
-            if (house) {
+            const house = addr.house_number || addr.building || addr.house_name || addr.office || addr.apartment || addr.flat || addr.street_number || addr.unit || addr.room;
+            const street = addr.road || addr.pedestrian || addr.path || addr.street || addr.lane || addr.cycleway || addr.footway;
+            const area = addr.suburb || addr.neighbourhood || addr.village || addr.quarter || addr.hamlet || addr.croft || addr.city_district;
+
+            let finalAddress = "";
+            if (house && street) {
               const formattedHouse = /^\d/.test(house) && !house.toLowerCase().includes('số') ? `Số ${house}` : house;
-              addressParts.push(formattedHouse);
+              const formattedStreet = !street.toLowerCase().includes('đường') && !street.toLowerCase().includes('phố') ? `Đường ${street}` : street;
+              finalAddress = `${formattedHouse} ${formattedStreet}`;
+            } else if (house) {
+              finalAddress = /^\d/.test(house) && !house.toLowerCase().includes('số') ? `Số ${house}` : house;
+            } else if (street) {
+              finalAddress = !street.toLowerCase().includes('đường') && !street.toLowerCase().includes('phố') ? `Đường ${street}` : street;
+            } else if (area) {
+              finalAddress = area;
             }
-            if (street) addressParts.push(street);
-            if (addressParts.length < 2 && block) addressParts.push(block);
 
             const display = geoData.display_name ? geoData.display_name.split(',').slice(0, 3).map((s: string) => s.trim()).join(', ') : "";
-            const finalAddress = addressParts.join(", ") || display || "Vị trí chưa xác định";
+            if (!finalAddress) finalAddress = display || "Vị trí chưa xác định";
             
             if (finalAddress) {
               console.log(`[Traccar API] Detailed Address: ${finalAddress}`);
@@ -233,6 +244,7 @@ async function startServer() {
           console.warn("[Traccar API] Geocoding background error:", (geoErr as Error).message);
         }
       })();
+    }
 
       // Respond "OK" immediately to Traccar Client
       res.status(200).send("OK");
@@ -393,20 +405,25 @@ async function startServer() {
               const geoData = response.data;
               const addr = geoData.address || {};
               
-              const components = [];
-              const house = addr.house_number || addr.building || addr.house_name || addr.office || addr.apartment || addr.flat || addr.street_number;
-              const street = addr.road || addr.pedestrian || addr.path || addr.street || addr.lane;
-              const area = addr.suburb || addr.neighbourhood || addr.village || addr.quarter || addr.hamlet;
-              
-              if (house) {
+              const house = addr.house_number || addr.building || addr.house_name || addr.office || addr.apartment || addr.flat || addr.street_number || addr.unit || addr.room;
+              const street = addr.road || addr.pedestrian || addr.path || addr.street || addr.lane || addr.cycleway || addr.footway;
+              const area = addr.suburb || addr.neighbourhood || addr.village || addr.quarter || addr.hamlet || addr.croft || addr.city_district;
+
+              let address = "";
+              if (house && street) {
                 const formattedHouse = /^\d/.test(house) && !house.toLowerCase().includes('số') ? `Số ${house}` : house;
-                components.push(formattedHouse);
+                const formattedStreet = !street.toLowerCase().includes('đường') && !street.toLowerCase().includes('phố') ? `Đường ${street}` : street;
+                address = `${formattedHouse} ${formattedStreet}`;
+              } else if (house) {
+                address = /^\d/.test(house) && !house.toLowerCase().includes('số') ? `Số ${house}` : house;
+              } else if (street) {
+                address = !street.toLowerCase().includes('đường') && !street.toLowerCase().includes('phố') ? `Đường ${street}` : street;
+              } else if (area) {
+                address = area;
               }
-              if (street) components.push(street);
-              if (components.length < 2 && area) components.push(area);
 
               const fallback = geoData.display_name ? geoData.display_name.split(',').slice(0, 2).map((s: string) => s.trim()).join(', ') : "";
-              const address = components.join(", ") || fallback || "";
+              if (!address) address = fallback || "";
               
               if (address && address !== clientAddress) {
                 console.log(`[API Update] Address resolved: ${address}`);

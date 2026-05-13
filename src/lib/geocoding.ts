@@ -31,7 +31,8 @@ const saveToCache = (key: string, val: string) => {
 };
 
 export const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
-  const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  // Use 5 decimal places (~1.1m precision) for cache keys to correctly identify different houses
+  const cacheKey = `${lat.toFixed(5)},${lng.toFixed(5)}`;
   const cached = getCache()[cacheKey];
   if (cached) return cached;
 
@@ -47,21 +48,25 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<string> 
     if (data && data.address) {
       const addr = data.address as any;
       // Mở rộng các trường tiềm năng chứa số nhà/tên toà nhà
-      const house = addr.house_number || addr.building || addr.house_name || addr.office || addr.apartment || addr.flat || addr.street_number;
-      const street = addr.road || addr.pedestrian || addr.path || addr.street || addr.lane;
-      const area = addr.suburb || addr.neighbourhood || addr.village || addr.city_district || addr.quarter || addr.hamlet;
+      const house = addr.house_number || addr.building || addr.house_name || addr.office || addr.apartment || addr.flat || addr.street_number || addr.unit || addr.room;
+      const street = addr.road || addr.pedestrian || addr.path || addr.street || addr.lane || addr.cycleway || addr.footway;
+      const area = addr.suburb || addr.neighbourhood || addr.village || addr.city_district || addr.quarter || addr.hamlet || addr.croft;
       
-      const components = [];
-      if (house) {
-        // Thêm "Số " nếu nhà bắt đầu bằng số và chưa có chữ "Số"
+      let addressResult = "";
+      if (house && street) {
         const formattedHouse = /^\d/.test(house) && !house.toLowerCase().includes('số') ? `Số ${house}` : house;
-        components.push(formattedHouse);
+        const formattedStreet = !street.toLowerCase().includes('đường') && !street.toLowerCase().includes('phố') ? `Đường ${street}` : street;
+        addressResult = `${formattedHouse} ${formattedStreet}`;
+      } else if (house) {
+        addressResult = /^\d/.test(house) && !house.toLowerCase().includes('số') ? `Số ${house}` : house;
+      } else if (street) {
+        addressResult = !street.toLowerCase().includes('đường') && !street.toLowerCase().includes('phố') ? `Đường ${street}` : street;
+      } else if (area) {
+        addressResult = area;
       }
-      if (street) components.push(street);
-      if (components.length < 2 && area) components.push(area);
       
-      if (components.length > 0) {
-        result = components.join(", ");
+      if (addressResult) {
+        result = addressResult;
       } else {
         const fallback = data.display_name ? data.display_name.split(',').slice(0, 2).map((s: string) => s.trim()).join(', ') : "";
         result = fallback || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
@@ -73,7 +78,8 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<string> 
     if (result) saveToCache(cacheKey, result);
     return result;
   } catch (error) {
-    console.warn("Geocoding fallback used:", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn("Geocoding fallback used:", msg);
     return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   }
 };
@@ -92,7 +98,8 @@ export const searchGeocode = async (query: string, bias?: { lat: number, lng: nu
     if (!response.ok) return [];
     return await response.json();
   } catch (error) {
-    console.warn("Search geocode failed:", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn("Search geocode failed:", msg);
     return [];
   }
 };
