@@ -136,7 +136,7 @@ const CustomMarker = React.memo(({ id, position, imageUrl, isOffline, color = 'r
   const icon = useMemo(() => divIcon({
     className: 'custom-div-icon',
     html: `
-      <div class="relative group animate-marker-breath flex flex-col items-center w-12 h-[60px]" style="will-change: transform;">
+      <div class="relative group flex flex-col items-center w-12 h-[60px]" style="will-change: transform;">
         <div class="relative w-12 h-12 bg-white rounded-[14px] shadow-2xl z-20 flex items-center justify-center p-[2px]" style="border: 3px solid ${color === 'rose' ? '#fb7185' : '#60a5fa'}">
           <div style="width: 100%; height: 100%; border-radius: 9px; overflow: hidden; background-color: #f3f4f6; position: relative;">
             <img src="${encodeURI(imageUrl)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'" />
@@ -199,9 +199,14 @@ const CustomMarker = React.memo(({ id, position, imageUrl, isOffline, color = 'r
                 )}
              </div>
              <div className="pt-1 border-t border-gray-100">
-               <p className="text-[9px] text-rose-500 font-bold tracking-tighter">
-                 {position[0].toFixed(6)}, {position[1].toFixed(6)}
-               </p>
+               <div className="flex flex-col gap-0.5">
+                 <p className="text-[9px] text-rose-500 font-bold tracking-tighter">
+                   {position[0].toFixed(6)}, {position[1].toFixed(6)}
+                 </p>
+                 <p className="text-[8px] text-gray-400 font-medium">
+                   Cập nhật: {new Date().toLocaleTimeString('vi-VN')}
+                 </p>
+               </div>
              </div>
           </div>
         </div>
@@ -419,6 +424,18 @@ export const StoryMap: React.FC<StoryMapProps> = ({
   const [selectedItem, setSelectedItem] = useState<Event | null>(null);
   const [flyToCoords, setFlyToCoords] = useState<[number, number] | null>(null);
   const [refocusKey, setRefocusKey] = useState(0);
+  const [gpsLocked, setGpsLocked] = useState(false);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+
+  // Listen for GPS status from LocationSharing
+  useEffect(() => {
+    const handleAccuracy = (e: any) => {
+      setGpsAccuracy(e.detail.accuracy);
+      setGpsLocked(true);
+    };
+    window.addEventListener('location_accuracy', handleAccuracy);
+    return () => window.removeEventListener('location_accuracy', handleAccuracy);
+  }, []);
 
   // Handle external selection
   useEffect(() => {
@@ -676,6 +693,14 @@ export const StoryMap: React.FC<StoryMapProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 p-1 bg-white/10 backdrop-blur-xl rounded-full border border-white/20 shadow-xl shadow-black/5 pointer-events-auto">
+            {gpsLocked && (
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-white/40 rounded-full border border-white/40">
+                <div className={`w-1.5 h-1.5 rounded-full ${gpsAccuracy && gpsAccuracy < 50 ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`} />
+                <span className="text-[8px] font-black text-gray-700 uppercase tracking-widest">
+                  GPS: {gpsAccuracy ? Math.round(gpsAccuracy) : '?'}m
+                </span>
+              </div>
+            )}
             <button 
               onClick={() => setMapStyle(mapStyle === 'standard' ? 'hybrid' : 'standard')}
               className={`px-3 py-1 text-[8px] font-black uppercase tracking-widest rounded-full transition-all ${mapStyle === 'hybrid' ? 'bg-primary text-white' : 'text-gray-600 hover:bg-white/20'}`}

@@ -196,7 +196,7 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
       });
     };
 
-    const interval = setInterval(fetchAllData, 120000); // 2 mins refresh fallback (Realtime handles precision)
+    const interval = setInterval(fetchAllData, 20000); // 20s refresh fallback (Realtime handles precision)
 
     return () => {
       supabase.removeChannel(dbChannel);

@@ -635,7 +635,7 @@ export const Management: React.FC<ManagementProps> = ({
               { id: 'gallery', label: 'Kho Ảnh', icon: ImageIcon, count: stats.totalPhotos },
               { id: 'stories', label: 'Truyện', icon: BookOpen, count: stats.totalStories },
               { id: 'users', label: 'Thành Viên', icon: Users, adminOnly: true, count: stats.totalUsers },
-              { id: 'traccar', label: 'FlowLocate', icon: ShieldAlert, adminOnly: true },
+              { id: 'traccar', label: 'Traccar Client', icon: ShieldAlert, adminOnly: true },
             ].filter(t => !t.adminOnly || userRole === 'admin').map((tab) => (
               <button
                 key={tab.id}
@@ -926,8 +926,8 @@ export const Management: React.FC<ManagementProps> = ({
             <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-gray-100">
               <div className="flex items-center justify-between mb-8">
                 <div>
-                  <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter">Cấu hình FlowLocate</h3>
-                  <p className="text-xs text-gray-500 font-medium mt-1">Sử dụng ứng dụng FlowLocate trên điện thoại để cập nhật vị trí trực tiếp.</p>
+                  <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter">Cấu hình Traccar Client</h3>
+                  <p className="text-xs text-gray-500 font-medium mt-1">Sử dụng ứng dụng Traccar Client (có sẵn trên App Store/CH Play) để cập nhật vị trí.</p>
                 </div>
                 <div className="flex gap-4">
                   <button 
@@ -950,21 +950,39 @@ export const Management: React.FC<ManagementProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-6">
                   <div className="p-6 bg-blue-50/50 rounded-3xl border border-blue-100">
-                    <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-4">Hướng dẫn cài đặt</p>
-                    <ol className="space-y-4 text-xs font-bold text-gray-600 list-decimal pl-4">
-                      <li>Tải ứng dụng <b>FlowLocate</b> từ CH Play hoặc App Store.</li>
-                      <li>Trong mục <b>Server URL</b>, nhập chính xác:
-                        <div className="mt-2 p-3 bg-white rounded-xl border border-blue-200 font-mono text-primary break-all select-all">
-                          https://ourofstories-thui.vercel.app/api/traccar
-                        </div>
-                      </li>
-                      <li>Copy <b>ID người dùng</b> của bạn và dán vào mục <b>Device Identifier</b> trong app:
-                        <div className="mt-2 p-3 bg-white rounded-xl border border-blue-200 font-mono text-gray-800 break-all select-all">
-                          {userId}
-                        </div>
-                      </li>
-                      <li>Bật <b>Track</b> trong FlowLocate để bắt đầu gửi vị trí.</li>
-                    </ol>
+                    <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-4">Cài đặt GPS Tracker (Cho iPhone/Android)</p>
+                    <div className="space-y-6">
+                      <div>
+                        <p className="text-xs font-black text-gray-800 mb-2">Lựa chọn 1: Traccar Client (Khuyên dùng)</p>
+                        <ol className="space-y-3 text-[11px] font-bold text-gray-600 list-decimal pl-4">
+                          <li>Tải <b>Traccar Client</b> từ App Store / CH Play.</li>
+                          <li>Địa chỉ máy chủ: <code className="bg-white px-2 py-1 rounded border border-blue-200 text-primary">https://ourofstories-thui.vercel.app/api/traccar</code></li>
+                          <li>Mã định danh thiết bị: <code className="bg-white px-2 py-1 rounded border border-blue-200 text-gray-800">{userId}</code></li>
+                          <li>Tần suất: 60 giây. Bật <b>Trạng thái dịch vụ</b>.</li>
+                        </ol>
+                      </div>
+
+                      <div className="pt-4 border-t border-blue-100/50">
+                        <p className="text-xs font-black text-gray-800 mb-2">Lựa chọn 2: OwnTracks (Giao diện đẹp cho iPhone)</p>
+                        <ol className="space-y-3 text-[11px] font-bold text-gray-600 list-decimal pl-4">
+                          <li>Tải <b>OwnTracks</b> từ App Store.</li>
+                          <li>Vào <b>Settings</b> &gt; <b>Mode</b> &gt; Chọn <b>HTTP</b>.</li>
+                          <li>
+                            Mục <b>URL</b>, nhập địa chỉ kèm ID của bạn:
+                            <div className="mt-2 p-3 bg-white rounded-xl border border-blue-200 font-mono text-primary break-all select-all">
+                              https://ourofstories-thui.vercel.app/api/traccar?id={userId}
+                            </div>
+                          </li>
+                          <li>
+                            Mục <b>Identification</b>:
+                            <ul className="mt-1 space-y-1 text-gray-500 font-medium list-disc pl-4">
+                              <li>Tracker ID: Nhập 2 ký tự (ví dụ: "Me").</li>
+                              <li>Device ID: Nhập "iPhone" hoặc tên máy.</li>
+                            </ul>
+                          </li>
+                        </ol>
+                      </div>
+                    </div>
                   </div>
                   
                   <div className="p-6 bg-amber-50/50 rounded-3xl border border-amber-100">

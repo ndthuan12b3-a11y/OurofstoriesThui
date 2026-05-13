@@ -79,11 +79,12 @@ async function startServer() {
     // Combine query parameters (GET) and body data (POST)
     const data = { ...req.query, ...req.body };
     
-    // Extract core fields with multiple possible mappings for different clients (Traccar, FlowLocate, etc.)
-    const id = data.id || data.uniqueId || data.deviceId || data.deviceid || data.userId || data.user_id;
+    // Extract core fields with multiple possible mappings for different clients (Traccar, OwnTracks, etc.)
+    const id = data.id || data.uniqueId || data.deviceId || data.deviceid || data.userId || data.user_id || data.tid;
     const lat = data.lat || data.latitude || data.location?.lat || data.location?.latitude;
     const lon = data.lon || data.longitude || data.lng || data.location?.lng || data.location?.longitude;
     const timestamp = data.timestamp || data.time || data.tst || data.updated_at || data.location?.timestamp;
+    const accuracy = data.hdop || data.accuracy || data.acc || data.location?.accuracy;
     const clientAddress = data.address || data.location?.address || data.addr;
 
     console.log(`[Incoming Location] Client: ${req.headers['user-agent'] || 'Unknown'}, ID: ${id}`);
