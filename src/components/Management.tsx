@@ -430,6 +430,13 @@ export const Management: React.FC<ManagementProps> = ({
         const { data } = await supabase.from('stories').select('*').order('created_at', { ascending: false }) as any;
         if (data) setStories(data);
       }
+
+      if (activeSubTab === 'users' || activeSubTab === 'dashboard') {
+        if (userRole === 'admin') {
+          const { data } = await supabase.rpc('get_all_users') as any;
+          if (data) setUsers(data);
+        }
+      }
       
       if (activeSubTab === 'traccar') {
         const { data } = await supabase
