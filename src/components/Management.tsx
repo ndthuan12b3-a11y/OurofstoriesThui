@@ -628,6 +628,7 @@ export const Management: React.FC<ManagementProps> = ({
               { id: 'gallery', label: 'Kho Ảnh', icon: ImageIcon, count: stats.totalPhotos },
               { id: 'stories', label: 'Truyện', icon: BookOpen, count: stats.totalStories },
               { id: 'users', label: 'Thành Viên', icon: Users, adminOnly: true, count: stats.totalUsers },
+              { id: 'traccar', label: 'FlowLocate', icon: ShieldAlert, adminOnly: true },
             ].filter(t => !t.adminOnly || userRole === 'admin').map((tab) => (
               <button
                 key={tab.id}
@@ -913,7 +914,102 @@ export const Management: React.FC<ManagementProps> = ({
           </div>
         )}
 
-        {activeSubTab !== 'config' && activeSubTab !== 'dashboard' && (
+        {activeSubTab === 'traccar' && (
+          <div className="space-y-8">
+            <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-gray-100">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter">Cấu hình FlowLocate</h3>
+                  <p className="text-xs text-gray-500 font-medium mt-1">Sử dụng ứng dụng FlowLocate trên điện thoại để cập nhật vị trí trực tiếp.</p>
+                </div>
+                <div className="flex gap-4">
+                  <button 
+                    onClick={handleCleanupHistory}
+                    disabled={isCleaning}
+                    className="px-6 py-3 bg-rose-50 text-rose-500 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all flex items-center gap-2"
+                  >
+                    {isCleaning ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                    Tối ưu dữ liệu
+                  </button>
+                  <button 
+                    onClick={fetchData}
+                    className="p-3 bg-gray-50 text-gray-400 rounded-2xl hover:text-primary transition-all"
+                  >
+                    <RefreshCw size={20} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-6">
+                  <div className="p-6 bg-blue-50/50 rounded-3xl border border-blue-100">
+                    <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-4">Hướng dẫn cài đặt</p>
+                    <ol className="space-y-4 text-xs font-bold text-gray-600 list-decimal pl-4">
+                      <li>Tải ứng dụng <b>FlowLocate</b> từ CH Play hoặc App Store.</li>
+                      <li>Trong mục <b>Server URL</b>, nhập chính xác:
+                        <div className="mt-2 p-3 bg-white rounded-xl border border-blue-200 font-mono text-primary break-all select-all">
+                          https://ourofstories-thui.vercel.app/api/traccar
+                        </div>
+                      </li>
+                      <li>Copy <b>ID người dùng</b> của bạn và dán vào mục <b>Device Identifier</b> trong app:
+                        <div className="mt-2 p-3 bg-white rounded-xl border border-blue-200 font-mono text-gray-800 break-all select-all">
+                          {userId}
+                        </div>
+                      </li>
+                      <li>Bật <b>Track</b> trong FlowLocate để bắt đầu gửi vị trí.</li>
+                    </ol>
+                  </div>
+                  
+                  <div className="p-6 bg-amber-50/50 rounded-3xl border border-amber-100">
+                    <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-2">Lưu ý bảo mật</p>
+                    <p className="text-[10px] text-amber-600 font-medium leading-relaxed">
+                      ID thiết bị là khóa bí mật để định danh bạn trên bản đồ. Không chia sẻ ID này cho người khác.
+                      Web sẽ tự động tối ưu hóa dữ liệu (xóa các vị trí trùng lặp) để tiết kiệm dung lượng.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-gray-900 rounded-[2.5rem] p-6 text-white shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 blur-3xl rounded-full -mr-16 -mt-16"></div>
+                  <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.3em] mb-4">Trạng thái hệ thống</h4>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center py-2 border-b border-white/10">
+                      <span className="text-gray-400 text-[10px] font-bold uppercase">Database Sync</span>
+                      <span className="text-green-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
+                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" /> Đang hoạt động
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-white/10">
+                      <span className="text-gray-400 text-[10px] font-bold uppercase">Optimization Engine</span>
+                      <span className="text-blue-400 text-[10px] font-black uppercase tracking-widest">Tự động (Enabled)</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-white/10">
+                      <span className="text-gray-400 text-[10px] font-bold uppercase">Geocoding Level</span>
+                      <span className="text-amber-400 text-[10px] font-black uppercase tracking-widest">Đường & Số nhà (VN)</span>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-8">
+                     <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4">20 bản ghi mới nhất</p>
+                     <div className="space-y-2 max-h-[250px] overflow-y-auto no-scrollbar">
+                        {traccarLogs.map((log, idx) => (
+                          <div key={log.id} className="p-3 bg-white/5 rounded-xl border border-white/5 flex flex-col gap-1">
+                            <div className="flex justify-between text-[8px] font-black uppercase">
+                              <span className="text-primary tracking-widest">#{traccarLogs.length - idx}</span>
+                              <span className="text-gray-500">{new Date(log.timestamp).toLocaleTimeString('vi-VN')}</span>
+                            </div>
+                            <p className="text-[10px] font-medium text-gray-300 truncate">{log.address || `${log.lat}, ${log.lng}`}</p>
+                          </div>
+                        ))}
+                        {traccarLogs.length === 0 && <p className="text-center py-10 text-[10px] font-black text-gray-600 uppercase tracking-widest">Chưa có dữ liệu</p>}
+                     </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {activeSubTab !== 'config' && activeSubTab !== 'dashboard' && activeSubTab !== 'traccar' && (
           <div className="bg-white rounded-2xl soft-shadow overflow-hidden">
             {activeSubTab === 'music' && (
               <div className="p-6 border-b bg-gray-50/50">

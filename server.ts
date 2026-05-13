@@ -20,6 +20,48 @@ const supabase = createClient(supabaseUrl || '', supabaseServiceKey || '');
 // Helper to check if string is a valid UUID
 const isUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id));
 
+/**
+ * Helper to clean up redundant location history
+ * If the current address is the same as the previous one for this user,
+ * we merge them to optimize storage.
+ */
+async function cleanupRedundantHistory(userId: string, address: string) {
+  if (!address || address.length < 5) return;
+
+  try {
+    // Find the 2 most recent records for this user (the one we just inserted and the one before it)
+    const { data: recentRecords, error } = await supabase
+      .from('location_history')
+      .select('id, address, timestamp')
+      .eq('user_id', userId)
+      .order('timestamp', { ascending: false })
+      .limit(2);
+
+    if (!error && recentRecords && recentRecords.length === 2) {
+      const [newest, previous] = recentRecords;
+      
+      // If the address is identical, merge them
+      if (newest.address === previous.address && newest.address === address) {
+        console.log(`[Optimization] Merging redundant records for user ${userId} at address: ${address}`);
+        
+        // Update the previous record with the newest timestamp
+        await supabase
+          .from('location_history')
+          .update({ timestamp: newest.timestamp })
+          .eq('id', previous.id);
+          
+        // Delete the redundant newest record
+        await supabase
+          .from('location_history')
+          .delete()
+          .eq('id', newest.id);
+      }
+    }
+  } catch (err) {
+    console.error("[Optimization] Error cleaning up history:", err);
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -238,6 +280,9 @@ async function startServer() {
                 .is('address', null)
                 .gte('lat', latitude - 0.0005)
                 .lte('lat', latitude + 0.0005);
+
+              // NEW: Optimization - merge redundant consecutive addresses
+              await cleanupRedundantHistory(id, finalAddress);
             }
           }
         } catch (geoErr) {
@@ -438,6 +483,9 @@ async function startServer() {
                   .is('address', null)
                   .gte('lat', latitude - 0.0005)
                   .lte('lat', latitude + 0.0005);
+
+                // NEW: Optimization - merge redundant consecutive addresses
+                await cleanupRedundantHistory(user_id, address);
               }
             }
           } catch (e) {
