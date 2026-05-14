@@ -22,6 +22,10 @@ const SmoothMarker = ({ position, icon, children }: { position: [number, number]
       const tarLat = position[0];
       const tarLng = position[1];
 
+      if (isNaN(curLat) || isNaN(curLng) || isNaN(tarLat) || isNaN(tarLng)) {
+        return;
+      }
+
       const dfLat = tarLat - curLat;
       const dfLng = tarLng - curLng;
       
@@ -59,11 +63,13 @@ const SmoothMarker = ({ position, icon, children }: { position: [number, number]
   );
 };
 
-// Map center/zoom controller
-const MapViewHandler = ({ center, zoom }: { center: [number, number], zoom: number }) => {
-  const map = useMap();
-  useEffect(() => {
-    map.flyTo(center, zoom, {
+  // Map center/zoom controller
+  const MapViewHandler = ({ center, zoom }: { center: [number, number], zoom: number }) => {
+    const map = useMap();
+    useEffect(() => {
+      if (isNaN(center[0]) || isNaN(center[1]) || isNaN(zoom)) return;
+
+      map.flyTo(center, zoom, {
       duration: 2.8,
       easeLinearity: 0.25
     });
@@ -227,22 +233,29 @@ export const StoryMap: React.FC<StoryMapProps> = ({
     if (!isFollowingOther) return;
     
     const other = sortedUsers.find(u => u.user_id !== userId && u.isOnline);
-    if (other) {
+    if (other && !isNaN(other.lat) && !isNaN(other.lng)) {
       setMapProps({ center: [other.lat, other.lng], zoom: 16 });
     }
   }, [sortedUsers, isFollowingOther, userId]);
 
   // Filter events that actually have coordinates
   const mapEvents = useMemo(() => {
-    return events.filter(e => e.location && e.location.lat && e.location.lng);
+    return events.filter(e => 
+      e.location && 
+      e.location.lat !== undefined && e.location.lng !== undefined &&
+      !isNaN(Number(e.location.lat)) && !isNaN(Number(e.location.lng))
+    );
   }, [events]);
 
   // Sync with external selection (e.g. from Timeline)
   useEffect(() => {
     if (externalSelectedEvent?.location) {
-      const { lat, lng } = externalSelectedEvent.location;
-      setSelectedEvent(externalSelectedEvent);
-      setMapProps({ center: [lat, lng], zoom: 16 });
+      const lat = Number(externalSelectedEvent.location.lat);
+      const lng = Number(externalSelectedEvent.location.lng);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        setSelectedEvent(externalSelectedEvent);
+        setMapProps({ center: [lat, lng], zoom: 16 });
+      }
       if (onExternalEventConsumed) onExternalEventConsumed();
     }
   }, [externalSelectedEvent, onExternalEventConsumed]);
@@ -302,9 +315,11 @@ export const StoryMap: React.FC<StoryMapProps> = ({
         {me && (
           <button 
             onClick={() => {
+            if (me && !isNaN(me.lat) && !isNaN(me.lng)) {
               setIsFollowingOther(false);
               setMapProps({ center: [me.lat, me.lng], zoom: 17 });
-            }}
+            }
+          }}
             className="w-12 h-12 bg-white/90 backdrop-blur-xl rounded-2xl flex items-center justify-center text-blue-500 shadow-xl border border-white/40 hover:scale-110 active:scale-95 transition-all"
             title="Vị trí của tôi"
           >
@@ -315,11 +330,11 @@ export const StoryMap: React.FC<StoryMapProps> = ({
         {other && (
           <button 
             onClick={() => {
-              setIsFollowingOther(!isFollowingOther);
-              if (!isFollowingOther) {
-                setMapProps({ center: [other.lat, other.lng], zoom: 17 });
-              }
-            }}
+            setIsFollowingOther(!isFollowingOther);
+            if (!isFollowingOther && other && !isNaN(other.lat) && !isNaN(other.lng)) {
+              setMapProps({ center: [other.lat, other.lng], zoom: 17 });
+            }
+          }}
             className={cn(
               "w-12 h-12 rounded-2xl flex items-center justify-center shadow-xl border transition-all relative overflow-hidden group",
               isFollowingOther 
@@ -436,8 +451,12 @@ export const StoryMap: React.FC<StoryMapProps> = ({
               icon={event.icon}
               eventHandlers={{
                 click: () => {
-                  setSelectedEvent(event);
-                  setMapProps({ center: [event.location.lat, event.location.lng], zoom: 16 });
+                  const lat = Number(event.location.lat);
+                  const lng = Number(event.location.lng);
+                  if (!isNaN(lat) && !isNaN(lng)) {
+                    setSelectedEvent(event);
+                    setMapProps({ center: [lat, lng], zoom: 16 });
+                  }
                 },
               }}
             />

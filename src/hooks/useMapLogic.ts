@@ -90,12 +90,15 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
         const existing = prev[uid];
         const dbTime = new Date(loc.updated_at).getTime();
         const existingTime = existing ? new Date(existing.updated_at).getTime() : 0;
+        
+        const lat = Number(loc.lat);
+        const lng = Number(loc.lng);
 
-        if (!existing || dbTime >= existingTime) {
+        if (!isNaN(lat) && !isNaN(lng) && (!existing || dbTime >= existingTime)) {
           newTrackedUsers[uid] = {
             user_id: uid,
-            lat: Number(loc.lat),
-            lng: Number(loc.lng),
+            lat,
+            lng,
             updated_at: loc.updated_at || new Date().toISOString(),
             avatar_url: profile?.avatar_url || null,
             name: name || 'Người dùng',
@@ -149,12 +152,17 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
         const dbTime = new Date(loc.updated_at).getTime();
         const existingTime = existing ? new Date(existing.updated_at).getTime() : 0;
 
+        const lat = Number(loc.lat);
+        const lng = Number(loc.lng);
+        
+        if (isNaN(lat) || isNaN(lng)) return prev;
+
         // Chỉ cập nhật nếu dữ liệu mới hơn (tránh race condition với Presence)
         if (!existing || dbTime >= existingTime - 1000) {
           const updated = {
             user_id: uid,
-            lat: Number(loc.lat),
-            lng: Number(loc.lng),
+            lat,
+            lng,
             updated_at: loc.updated_at || new Date().toISOString(),
             avatar_url: profile?.avatar_url || null,
             name: name || 'Người dùng',
@@ -188,23 +196,28 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
             const presenceList = presences as any[];
             const latest = presenceList[presenceList.length - 1];
             
-            if (latest && latest.lat && latest.lng) {
-              const profile = profilesMap[uid];
-              let name = config.name_male;
-              if (creatorId) {
-                name = uid === creatorId ? config.name_female : config.name_male;
-              }
+            if (latest && latest.lat !== undefined && latest.lng !== undefined) {
+              const lat = Number(latest.lat);
+              const lng = Number(latest.lng);
+              
+              if (!isNaN(lat) && !isNaN(lng)) {
+                const profile = profilesMap[uid];
+                let name = config.name_male;
+                if (creatorId) {
+                  name = uid === creatorId ? config.name_female : config.name_male;
+                }
 
-              merged[uid] = {
-                user_id: uid,
-                lat: Number(latest.lat),
-                lng: Number(latest.lng),
-                updated_at: latest.online_at || new Date().toISOString(),
-                avatar_url: profile?.avatar_url || null,
-                name: name || 'Người dùng',
-                address: cleanAddress(latest.address || ''),
-                isOnline: true
-              };
+                merged[uid] = {
+                  user_id: uid,
+                  lat,
+                  lng,
+                  updated_at: latest.online_at || new Date().toISOString(),
+                  avatar_url: profile?.avatar_url || null,
+                  name: name || 'Người dùng',
+                  address: cleanAddress(latest.address || ''),
+                  isOnline: true
+                };
+              }
             }
           });
           

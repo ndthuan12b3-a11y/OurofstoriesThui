@@ -405,14 +405,16 @@ export default function App() {
           </div>
         )}
 
-        <Navigation 
-          activeTab={activeTab} 
-          setActiveTab={handleTabChange} 
-          userRole={userRole}
-          onLogout={handleLogout}
-          userProfile={userProfile}
-          config={config}
-        />
+        {activeTab !== 'map' && (
+          <Navigation 
+            activeTab={activeTab} 
+            setActiveTab={handleTabChange} 
+            userRole={userRole}
+            onLogout={handleLogout}
+            userProfile={userProfile}
+            config={config}
+          />
+        )}
 
         <main className={cn(
           "flex-grow transition-all duration-300",
