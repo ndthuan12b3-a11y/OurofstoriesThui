@@ -1,831 +1,516 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Tooltip, Circle, Polyline } from 'react-leaflet';
-import L, { Icon, divIcon } from 'leaflet';
-import MarkerClusterGroup from 'react-leaflet-cluster';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, ZoomControl } from 'react-leaflet';
+import L, { divIcon } from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, Calendar, BookOpen, X, Maximize2, Minimize2, Navigation as NavIcon, ChevronRight, List, Zap, User, Plus, Minus, Home } from 'lucide-react';
-import { AppConfig, Database } from '../types';
-import { getOptimizedImageUrl } from '../lib/imageUtils';
-import { cleanAddress } from '../lib/utils';
-import { useMapLogic, TrackedUser } from '../hooks/useMapLogic';
-import { showNotification } from '../lib/notifications';
+import { Calendar, MapPin, Navigation as NavIcon, Heart, X, ChevronRight, User, Sparkles, Compass, Eye } from 'lucide-react';
+import { AppConfig } from '../types';
+import { formatDate, cleanAddress, cn } from '../lib/utils';
+import MarkerClusterGroup from 'react-leaflet-cluster';
+import { useMapLogic } from '../hooks/useMapLogic';
 
-type Event = Database['public']['Tables']['events']['Row'];
+// Throttled Marker for smooth transitions
+const SmoothMarker = ({ position, icon, children }: { position: [number, number], icon?: any, children?: React.ReactNode }) => {
+  const [currentPos, setCurrentPos] = useState<[number, number]>(position);
+  const markerRef = useRef<L.Marker>(null);
+  const requestRef = useRef<number>(0);
 
-// Regular marker icon
-const defaultIcon = new Icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41]
-});
-
-// Fix for default Leaflet icon inclusion
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
-
-// Helper to validate coordinates
-const isValidCoords = (coords: any): coords is [number, number] => {
-  if (!Array.isArray(coords) || coords.length !== 2) return false;
-  const lat = Number(coords[0]);
-  const lng = Number(coords[1]);
-  return typeof lat === 'number' && !isNaN(lat) && isFinite(lat) &&
-         typeof lng === 'number' && !isNaN(lng) && isFinite(lng);
-};
-
-// Smooth Marker with interpolation
-const SmoothMarker = ({ position, icon, children }: { 
-  position: [number, number], 
-  icon: L.DivIcon | L.Icon, 
-  children?: React.ReactNode 
-}) => {
-  const markerRef = React.useRef<L.Marker | null>(null);
-  const targetPosRef = React.useRef(position);
-  const currentPosRef = React.useRef(position);
-  const requestRef = React.useRef<number | undefined>(undefined);
-
-  React.useEffect(() => {
-    if (!isValidCoords(position)) return; // Don't animate to invalid positions
-    let isSubscribed = true;
-    targetPosRef.current = position;
-    
+  useEffect(() => {
     const animate = () => {
-      if (!isSubscribed) return;
-      const [curLat, curLng] = currentPosRef.current;
-      const [tarLat, tarLng] = targetPosRef.current;
-      
-      if (isNaN(curLat) || isNaN(curLng) || isNaN(tarLat) || isNaN(tarLng)) {
-        if (markerRef.current && isValidCoords(targetPosRef.current)) {
-          markerRef.current.setLatLng(targetPosRef.current);
-          currentPosRef.current = targetPosRef.current;
-        }
-        requestRef.current = undefined;
-        return;
-      }
+      const curLat = currentPos[0];
+      const curLng = currentPos[1];
+      const tarLat = position[0];
+      const tarLng = position[1];
 
       const dfLat = tarLat - curLat;
       const dfLng = tarLng - curLng;
-      const factor = 0.12; // Snappier tracking
+      
+      // Dynamic factor based on distance to be smoother for small movements
+      const distance = Math.sqrt(dfLat * dfLat + dfLng * dfLng);
+      const factor = distance > 0.01 ? 0.15 : 0.08; 
       
       if (Math.abs(dfLat) < 0.0000001 && Math.abs(dfLng) < 0.0000001) {
         if (markerRef.current) {
-          try {
-            markerRef.current.setLatLng(targetPosRef.current);
-          } catch(e) {}
+          markerRef.current.setLatLng(position);
         }
-        currentPosRef.current = targetPosRef.current;
-        requestRef.current = undefined;
         return;
       }
-      
+
       const nextPos: [number, number] = [
         curLat + dfLat * factor,
         curLng + dfLng * factor
       ];
       
+      setCurrentPos(nextPos);
       if (markerRef.current) {
-        try {
-          markerRef.current.setLatLng(nextPos);
-        } catch(e) {}
+        markerRef.current.setLatLng(nextPos);
       }
-      currentPosRef.current = nextPos;
       requestRef.current = requestAnimationFrame(animate);
     };
 
-    if (!requestRef.current) {
-      requestRef.current = requestAnimationFrame(animate);
-    }
-    
-    return () => {
-      isSubscribed = false;
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current);
-        requestRef.current = undefined;
-      }
-    };
-  }, [position]);
+    requestRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(requestRef.current!);
+  }, [position, currentPos]);
 
   return (
-    <Marker 
-      position={currentPosRef.current} 
-      icon={icon}
-      ref={(ref) => { markerRef.current = ref; }}
-    >
+    <Marker ref={markerRef} position={currentPos} icon={icon}>
       {children}
     </Marker>
   );
 };
 
-// Custom marker with image
-const CustomMarker = React.memo(({ id, position, imageUrl, isOffline, color = 'rose', address }: { 
-  id: string,
-  position: [number, number], 
-  imageUrl: string, 
-  isOffline?: boolean,
-  color?: 'rose' | 'blue',
-  address?: string | null
-}) => {
-  if (!isValidCoords(position)) return null;
+// Map center/zoom controller
+const MapViewHandler = ({ center, zoom }: { center: [number, number], zoom: number }) => {
+  const map = useMap();
+  useEffect(() => {
+    map.flyTo(center, zoom, {
+      duration: 2.8,
+      easeLinearity: 0.25
+    });
+    // Force recalculate size after a short delay to handle animation/mounting issues
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [center, zoom, map]);
+
+  useEffect(() => {
+    // Add a ResizeObserver to automatically invalidate size when container changes
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        map.invalidateSize();
+      });
+      observer.observe(map.getContainer());
+      return () => observer.disconnect();
+    }
+  }, [map]);
+  
+  return null;
+};
+
+interface UserMarkerProps {
+  position: [number, number];
+  name: string;
+  imageUrl?: string | null;
+  isOffline?: boolean;
+  color?: 'rose' | 'blue';
+  address?: string;
+}
+
+const UserMarker: React.FC<UserMarkerProps> = ({ position, name, imageUrl, isOffline, color = 'rose', address = "" }) => {
   const pingColor = color === 'rose' ? 'bg-rose-400/20' : 'bg-blue-400/20';
   const pulseBorder = color === 'rose' ? 'border-rose-400/30' : 'border-blue-400/30';
+
+  const cleanedAddress = useMemo(() => cleanAddress(address), [address]);
 
   const icon = useMemo(() => divIcon({
     className: 'custom-div-icon',
     html: `
-      <div class="relative group flex flex-col items-center w-12 h-[60px]" style="will-change: transform;">
-        <div class="relative w-12 h-12 bg-white rounded-[14px] shadow-2xl z-20 flex items-center justify-center p-[2px]" style="border: 3px solid ${color === 'rose' ? '#fb7185' : '#60a5fa'}">
-          <div style="width: 100%; height: 100%; border-radius: 9px; overflow: hidden; background-color: #f3f4f6; position: relative;">
-            <img src="${encodeURI(imageUrl)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'" />
+      <div class="relative group">
+        ${cleanedAddress ? `
+          <div class="absolute -top-10 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none group-hover:scale-110 transition-transform duration-300">
+            <div class="bg-white/95 backdrop-blur-xl px-2.5 py-1 rounded-xl border border-white/50 shadow-xl flex flex-col items-center min-w-[80px]">
+              <span class="text-[9px] font-black text-gray-900 leading-none whitespace-nowrap">${cleanedAddress.split(',')[0]}</span>
+              ${cleanedAddress.split(',')[1] ? `
+                <span class="text-[7px] font-bold text-primary leading-tight mt-0.5 whitespace-nowrap opacity-80 uppercase tracking-tighter">${cleanedAddress.split(',').slice(1).join(',')}</span>
+              ` : ''}
+            </div>
+            <div class="w-0.5 h-2 bg-white/60 blur-[0.5px]"></div>
           </div>
-          ${!isOffline ? `
-            <div class="absolute -right-1.5 -top-1.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white z-30 ring-2 ring-green-500/20"></div>
-          ` : ''}
-        </div>
-        <!-- Triangle Tail -->
-        <div class="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px]" style="border-top-color: ${color === 'rose' ? '#fb7185' : '#60a5fa'}; margin-top: -1px; z-index: 10;"></div>
-        
-        ${!isOffline ? `
-          <div class="absolute top-0 left-0 w-12 h-12 rounded-[14px] ${pingColor} animate-ping -z-10 scale-125"></div>
-          <div class="absolute -inset-[3px] rounded-[17px] border-2 ${pulseBorder} animate-marker-pulse -z-10 blur-[1px]"></div>
         ` : ''}
+
+        ${!isOffline ? `<div class="absolute -inset-2 bg-${color === 'rose' ? 'rose' : 'blue'}-500/20 rounded-full animate-ping opacity-75 z-0"></div>` : ''}
+        <div class="relative w-12 h-12 bg-white rounded-[14px] shadow-2xl z-20 flex items-center justify-center p-[2px]" style="border: 3px solid ${isOffline ? '#94a3b8' : (color === 'rose' ? '#fb7185' : '#60a5fa')}">
+          <div style="width: 100%; height: 100%; border-radius: 9px; overflow: hidden; background-color: #f3f4f6; position: relative;">
+            ${imageUrl ? 
+              `<img src="${imageUrl}" alt="avatar" style="width: 100%; height: 100%; object-fit: cover;" />` : 
+              `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-center; background: #e2e8f0; color: #64748b;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </div>`
+            }
+          </div>
+          ${!isOffline ? `<div class="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white rounded-full z-30"></div>` : ''}
+        </div>
+        <div class="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap z-30">
+          <span class="px-2 py-0.5 bg-white/90 backdrop-blur-sm rounded-full text-[8px] font-black uppercase tracking-widest shadow-sm border border-black/5 ${isOffline ? 'text-slate-400' : (color === 'rose' ? 'text-rose-500' : 'text-blue-500')}">
+            ${name}
+          </span>
+        </div>
       </div>
     `,
     iconSize: [48, 60],
     iconAnchor: [24, 60],
-  }), [imageUrl, isOffline, color, pingColor, pulseBorder]);
+  }), [imageUrl, isOffline, color, pingColor, pulseBorder, cleanedAddress]);
 
   return (
     <SmoothMarker position={position} icon={icon}>
-      <Popup className="custom-user-popup">
-        <div className="p-3 min-w-[180px] flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-2xl border-4 border-white shadow-xl overflow-hidden mb-3 relative">
-            <img src={imageUrl} className="w-full h-full object-cover" alt="" />
-            {!isOffline && (
-              <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></div>
-            )}
+      <Popup className="custom-popup" offset={[0, -45]}>
+        <div className="p-3 w-48 text-center">
+          <div className="w-12 h-12 mx-auto rounded-xl overflow-hidden mb-2 border-2 border-white shadow-md">
+             {imageUrl ? <img src={imageUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-300"><User size={20} /></div>}
           </div>
-          <div className="space-y-2">
-             <div className="flex flex-col gap-1">
-                {address ? (
-                  <p className="text-[11px] font-black text-gray-900 leading-tight bg-gray-50 p-2 rounded-xl border border-gray-100">
-                    {cleanAddress(address)}
-                  </p>
-                ) : (
-                  <p className="text-[10px] text-gray-400 italic">
-                    {isOffline ? 'Không tìm thấy địa chỉ' : 'Đang xác định vị trí...'}
-                  </p>
-                )}
-                {!isOffline && (
-                  <button 
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      try {
-                        await fetch('/api/location/update', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ user_id: id, lat: position[0], lng: position[1] })
-                        });
-                        showNotification("Đang làm mới địa chỉ...");
-                      } catch (err) {}
-                    }}
-                    className="text-[8px] font-black text-primary uppercase tracking-widest mt-1 hover:underline"
-                  >
-                    Làm mới địa chỉ
-                  </button>
-                )}
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{isOffline ? 'Ngoại tuyến' : 'Đang hoạt động'}</p>
+          <h4 className="text-sm font-black text-slate-800">{name}</h4>
+          {address && (
+             <div className="mt-3 p-2 bg-slate-50 rounded-lg border border-slate-100">
+               <p className="text-[9px] font-bold text-slate-500 leading-tight">
+                 <MapPin size={8} className="inline mr-1 text-primary" />
+                 {cleanAddress(address)}
+               </p>
              </div>
-             <div className="pt-1 border-t border-gray-100">
-               <div className="flex flex-col gap-0.5">
-                 <p className="text-[9px] text-rose-500 font-bold tracking-tighter">
-                   {position[0].toFixed(6)}, {position[1].toFixed(6)}
-                 </p>
-                 <p className="text-[8px] text-gray-400 font-medium">
-                   Cập nhật: {new Date().toLocaleTimeString('vi-VN')}
-                 </p>
-               </div>
-             </div>
-          </div>
+          )}
         </div>
       </Popup>
     </SmoothMarker>
   );
-});
-
-// Memory Marker component for mapping events
-const MemoryMarker = React.memo(({ item, onSelect }: { item: Event, onSelect: (item: Event, pos: [number, number]) => void }) => {
-  const pos = useMemo(() => [Number(item.location!.lat), Number(item.location!.lng)] as [number, number], [item.location]);
-  
-  const icon = useMemo(() => L.divIcon({
-    className: 'memory-marker',
-    html: `
-      <svg width="40" height="40" viewBox="0 0 40 40" class="group transition-transform active:scale-95">
-        <defs>
-          <clipPath id="circleView">
-            <rect x="4" y="4" width="32" height="32" rx="10" />
-          </clipPath>
-          <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
-            <feOffset dx="0" dy="2" result="offsetblur"/>
-            <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
-            <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-        </defs>
-        <path d="M20 40 L16 34 L24 34 Z" fill="white" />
-        <rect x="2" y="2" width="36" height="36" rx="12" fill="white" filter="url(#shadow)" />
-        <image 
-          href="${getOptimizedImageUrl(item.photo_url, 100)}" 
-          x="4" y="4" width="32" height="32" 
-          clip-path="url(#circleView)"
-          preserveAspectRatio="xMidYMid slice"
-        />
-      </svg>
-    `,
-    iconSize: [40, 40],
-    iconAnchor: [20, 40]
-  }), [item.photo_url]);
-
-  if (!isValidCoords(pos)) return null;
-
-  return (
-    <Marker 
-      position={pos}
-      icon={icon}
-      eventHandlers={{
-        click: () => onSelect(item, pos)
-      }}
-    >
-      <Popup className="custom-popup">
-        <div className="w-48 overflow-hidden rounded-2xl">
-          <img 
-            src={getOptimizedImageUrl(item.photo_url, 400)} 
-            alt={item.title}
-            className="w-full h-32 object-cover"
-          />
-          <div className="p-3">
-            <p className="text-[8px] font-black text-rose-400 uppercase tracking-widest leading-none mb-1">
-              {new Date(item.date).toLocaleDateString('vi-VN')}
-            </p>
-            <h4 className="text-xs font-black text-gray-800 line-clamp-1 mb-1 uppercase tracking-tight">{item.title}</h4>
-            <p className="text-[10px] text-gray-500 line-clamp-2 leading-tight">{cleanAddress((item.location as any)?.address_name) || item.description}</p>
-          </div>
-        </div>
-      </Popup>
-    </Marker>
-  );
-});
+};
 
 interface StoryMapProps {
-  events: Event[];
+  events: any[];
   config: AppConfig;
   userId?: string;
-  userProfile?: { id: string, avatar_url: string | null } | null;
-  externalSelectedEvent?: Event | null;
+  userProfile?: any;
+  externalSelectedEvent?: any;
   onExternalEventConsumed?: () => void;
   setActiveTab?: (tab: string) => void;
 }
 
-const ZoomControl = () => {
-  const map = useMap();
-  return (
-    <div className="absolute bottom-6 right-4 md:bottom-10 md:right-6 z-[1000] flex flex-col gap-2">
-      <button 
-        onClick={() => map.zoomIn()}
-        className="w-8 h-8 md:w-10 md:h-10 bg-white/90 backdrop-blur-sm shadow-xl rounded-xl md:rounded-2xl flex items-center justify-center text-gray-800 hover:bg-gray-50 active:scale-95 transition-all"
-      >
-        <Plus size={18} />
-      </button>
-      <button 
-        onClick={() => map.zoomOut()}
-        className="w-8 h-8 md:w-10 md:h-10 bg-white/90 backdrop-blur-sm shadow-xl rounded-xl md:rounded-2xl flex items-center justify-center text-gray-800 hover:bg-gray-50 active:scale-95 transition-all"
-      >
-        <Minus size={18} />
-      </button>
-    </div>
-  );
-};
-
-// Removed helper and moved up
-
-// Component to automatically fit the map view to show both markers
-const FitBoundsComponent = ({ 
-  userLoc, 
-  otherLoc, 
-  isOtherOnline,
-  refocusKey 
-}: { 
-  userLoc: [number, number] | null, 
-  otherLoc: [number, number] | null,
-  isOtherOnline: boolean,
-  refocusKey: number
-}) => {
-  const map = useMap();
-  const lastKeyRef = React.useRef(-1);
-
-  const points = useMemo(() => {
-    const pts: [number, number][] = [];
-    if (userLoc && isValidCoords(userLoc)) pts.push(userLoc);
-    if (otherLoc && isValidCoords(otherLoc)) pts.push(otherLoc);
-    return pts;
-  }, [userLoc, otherLoc]);
-
-  React.useEffect(() => {
-    if (points.length === 0) return;
-
-    // Trigger on initial load (points exist) or when refocus button clicked
-    if (refocusKey !== lastKeyRef.current) {
-      const isInitial = lastKeyRef.current === -1;
-      lastKeyRef.current = refocusKey;
-      
-      if (points.length === 1) {
-        try {
-          map.flyTo(points[0], 16, { 
-            duration: 2,
-            easeLinearity: 0.1
-          });
-        } catch (e) {}
-      } else {
-        try {
-          const bounds = L.latLngBounds(points);
-          map.fitBounds(bounds, { 
-            padding: [70, 70], 
-            maxZoom: 16, 
-            duration: 2,
-            easeLinearity: 0.1
-          });
-        } catch (e) {}
-      }
-    }
-  }, [refocusKey, points, map]);
-
-  return null;
-};
-
-// Component to handle external "FlyTo" commands
-const FlyToController = ({ target }: { target: [number, number] | null }) => {
-  const map = useMap();
-  React.useEffect(() => {
-    if (target && isValidCoords(target)) {
-      try {
-        map.flyTo(target, 17, {
-          duration: 1.5,
-          easeLinearity: 0.1
-        });
-      } catch (e) {
-        console.error("FlyTo error:", e);
-      }
-    }
-  }, [target, map]);
-  return null;
-};
-
-// Component to recalibrate map size after layout changes
-const InvalidateSizeHandler = ({ trigger }: { trigger: any }) => {
-  const map = useMap();
-  React.useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    if (map) {
-      timeoutId = setTimeout(() => {
-        try {
-          map.invalidateSize();
-        } catch (e) {
-          // Ignore if map is unmounted
-        }
-      }, 500); // Wait for transition animation to finish
-    }
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [trigger, map]);
-  return null;
-};
-
-// Removed old MapController
-
 export const StoryMap: React.FC<StoryMapProps> = ({ 
-  events, config, userId, userProfile, externalSelectedEvent, onExternalEventConsumed, setActiveTab 
- }) => {
-  const { 
-    trackedUsers, 
-    sortedUsers, 
-    userLocation, 
-    otherLocation, 
-    isOtherOnline, 
-    distance, 
-    onlineUsers 
-  } = useMapLogic(userId, config);
+  events, 
+  config, 
+  userId, 
+  userProfile, 
+  externalSelectedEvent,
+  onExternalEventConsumed,
+  setActiveTab
+}) => {
+  const [selectedEvent, setSelectedEvent] = useState<any>(null);
+  const [mapType, setMapType] = useState<'standard' | 'hybrid'>('hybrid');
+  const { trackedUsers, sortedUsers } = useMapLogic(userId, config);
+  const [locationNotice, setLocationNotice] = useState<{name: string, address: string, avatar: string | null} | null>(null);
+  const lastAddressesRef = useRef<Record<string, string>>({});
 
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [mapStyle, setMapStyle] = useState<'standard' | 'hybrid'>('hybrid');
-  const [showList, setShowList] = useState(true);
-  const [selectedItem, setSelectedItem] = useState<Event | null>(null);
-  const [flyToCoords, setFlyToCoords] = useState<[number, number] | null>(null);
-  const [refocusKey, setRefocusKey] = useState(0);
-  const [gpsLocked, setGpsLocked] = useState(false);
-  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [mapProps, setMapProps] = useState<{ center: [number, number], zoom: number }>({
+    center: [10.762622, 106.660172],
+    zoom: 8
+  });
+  const [isFollowingOther, setIsFollowingOther] = useState(false);
+  const mapRef = useRef<L.Map | null>(null);
 
-  // Listen for GPS status from LocationSharing
+  // Monitor location changes for notifications
   useEffect(() => {
-    const handleAccuracy = (e: any) => {
-      setGpsAccuracy(e.detail.accuracy);
-      setGpsLocked(true);
-    };
-    window.addEventListener('location_accuracy', handleAccuracy);
-    return () => window.removeEventListener('location_accuracy', handleAccuracy);
-  }, []);
-
-  // Handle external selection
-  useEffect(() => {
-    if (externalSelectedEvent && externalSelectedEvent.location) {
-      const lat = Number(externalSelectedEvent.location.lat);
-      const lng = Number(externalSelectedEvent.location.lng);
-      if (!isNaN(lat) && !isNaN(lng)) {
-        setFlyToCoords([lat, lng]);
-        setSelectedItem(externalSelectedEvent);
-        if (onExternalEventConsumed) onExternalEventConsumed();
+    sortedUsers.forEach(user => {
+      const prev = lastAddressesRef.current[user.user_id];
+      const current = user.address;
+      
+      if (prev && current && prev !== current && user.isOnline) {
+        // Significant change (at least some character diff or first discovery)
+        setLocationNotice({
+          name: user.name,
+          address: current,
+          avatar: user.avatar_url
+        });
+        
+        // Auto-dismiss after 6 seconds
+        const timer = setTimeout(() => setLocationNotice(null), 6000);
+        return () => clearTimeout(timer);
       }
+      
+      if (current) {
+        lastAddressesRef.current[user.user_id] = current;
+      }
+    });
+  }, [sortedUsers]);
+
+  // Auto-follow logic
+  useEffect(() => {
+    if (!isFollowingOther) return;
+    
+    const other = sortedUsers.find(u => u.user_id !== userId && u.isOnline);
+    if (other) {
+      setMapProps({ center: [other.lat, other.lng], zoom: 16 });
+    }
+  }, [sortedUsers, isFollowingOther, userId]);
+
+  // Filter events that actually have coordinates
+  const mapEvents = useMemo(() => {
+    return events.filter(e => e.location && e.location.lat && e.location.lng);
+  }, [events]);
+
+  // Sync with external selection (e.g. from Timeline)
+  useEffect(() => {
+    if (externalSelectedEvent?.location) {
+      const { lat, lng } = externalSelectedEvent.location;
+      setSelectedEvent(externalSelectedEvent);
+      setMapProps({ center: [lat, lng], zoom: 16 });
+      if (onExternalEventConsumed) onExternalEventConsumed();
     }
   }, [externalSelectedEvent, onExternalEventConsumed]);
 
-  const formatTime = (isoString: string) => {
-    if (!isoString) return '';
-    let dateStr = isoString;
-    if (!dateStr.endsWith('Z') && !dateStr.includes('+')) {
-      dateStr += 'Z';
-    }
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
-    if (diff < 60) return 'vừa xong';
-    if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`;
-    return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-  };
-
-  // Filter items that have location and valid coordinates
-  const mapItems = useMemo(() => {
-    return events.filter(e => {
-      if (!e.location) return false;
-      const lat = Number(e.location.lat);
-      const lng = Number(e.location.lng);
-      return !isNaN(lat) && !isNaN(lng);
-    });
-  }, [events]);
-
-  // Screen Wake Lock to keep the map alive
-  React.useEffect(() => {
-    let wakeLock: any = null;
-    const requestWakeLock = async () => {
-      try {
-        if ('wakeLock' in navigator) {
-          // Check if permissions policy allows wake-lock
-          // @ts-ignore
-          if (document.featurePolicy && !document.featurePolicy.allowsFeature('screen-wake-lock')) {
-            return;
-          }
-          wakeLock = await (navigator as any).wakeLock.request('screen');
-        }
-      } catch (err: any) {
-        // Silently skip if disallowed by policy or not supported
-        if (err.name !== 'NotAllowedError') {
-          console.warn('WakeLock request failed:', err.message);
-        }
-      }
-    };
-
-    if (isFullscreen) {
-      requestWakeLock();
-    }
-
-    return () => {
-      if (wakeLock !== null) {
-        wakeLock.release().then(() => {
-          wakeLock = null;
-        });
-      }
-    };
-  }, [isFullscreen]);
-
-  // Optimized Select Handlers
-  const handleSelectFromList = React.useCallback((item: Event) => {
-    if (!item.location) return;
-    const lat = Number(item.location.lat);
-    const lng = Number(item.location.lng);
-    if (!isNaN(lat) && !isNaN(lng)) {
-      setFlyToCoords([lat, lng]);
-      setSelectedItem(item);
-      if (window.innerWidth < 768) setShowList(false);
-    }
-  }, []);
-
-  const handleSelectLiveLocation = React.useCallback((coords: [number, number], label: string) => {
-    setFlyToCoords(coords);
-    if (window.innerWidth < 768) setShowList(false);
-  }, []);
-
-  return (
-    <div className={`relative transition-all duration-500 overflow-hidden flex flex-col md:flex-row ${isFullscreen ? 'fixed inset-0 z-[1500] h-[100dvh] w-screen bg-white' : 'h-[600px] md:h-[700px] rounded-none shadow-2xl border border-white/20 bg-white/40 backdrop-blur-xl'}`}>
-      
-      {/* Memories List - Responsive Layout */}
-      <motion.div 
-        initial={false}
-        animate={{ 
-          width: window.innerWidth >= 768 ? (showList ? (isFullscreen ? '300px' : '260px') : '0px') : '100%',
-          height: window.innerWidth < 768 ? (showList ? '280px' : '0px') : '100%',
-          opacity: showList ? 1 : 0,
-          display: !showList && window.innerWidth >= 768 ? 'none' : 'flex'
-        }}
-        className="relative bg-white/50 backdrop-blur-2xl border-r md:border-r border-b md:border-b-0 border-white/30 overflow-hidden flex flex-col z-10 shrink-0"
-      >
-        <div className="p-3 border-b border-white/20 flex items-center justify-between bg-white/40">
-          <div className="flex items-center gap-3">
-            <h3 className="text-[10px] font-black text-gray-800 uppercase tracking-[0.2em] flex items-center gap-2">
-              <Zap size={12} className="text-rose-500" /> TRỰC TIẾP
-            </h3>
-            
-            <div className="flex items-center gap-1 ml-2">
-              {setActiveTab && (
-                <motion.button
-                  whileHover={{ scale: 1.1, backgroundColor: 'rgba(0,0,0,0.05)' }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setActiveTab('home')}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:text-primary transition-all"
-                  title="Trang chủ"
-                >
-                  <Home size={14} />
-                </motion.button>
-              )}
-              <motion.button
-                whileHover={{ scale: 1.1, backgroundColor: 'rgba(0,0,0,0.05)' }}
-                whileTap={{ scale: 0.9 }}
-                onClick={() => {
-                  if (!isOtherOnline) {
-                    showNotification('Người ấy chưa online', true);
-                    return;
-                  }
-                  if (otherLocation && isValidCoords(otherLocation)) {
-                    setFlyToCoords(otherLocation);
-                  } else {
-                    showNotification('Không tìm thấy vị trí người ấy', true);
-                  }
-                }}
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:text-rose-500 transition-all"
-                title="Tìm người ấy"
-              >
-                <Zap size={14} />
-              </motion.button>
-            </div>
-          </div>
-          <button 
-            onClick={() => setShowList(false)} 
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 rounded-xl transition-all duration-300 group"
-            title="Ẩn danh sách"
-          >
-            <span className="text-[9px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Ẩn danh sách</span>
-            <X size={14} className="group-hover:rotate-90 transition-transform duration-300" />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2.5 space-y-5 no-scrollbar">
-          {/* Live Section - More compact and horizontal-friendly */}
-          <div className="space-y-1.5">
-            <div className="grid grid-cols-1 gap-1.5">
-              {sortedUsers.map(user => (
-                <motion.button
-                  key={user.user_id}
-                  whileHover={{ x: 2 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => handleSelectLiveLocation([user.lat, user.lng], user.name)}
-                  className={`w-full px-2 py-1.5 rounded-xl border transition-all flex items-center gap-2 ${onlineUsers.includes(user.user_id) ? 'bg-rose-50/40 border-rose-100/50 shadow-sm shadow-rose-100/20' : 'bg-white/40 border-transparent hover:bg-white/60'}`}
-                >
-                  <div className={`w-8 h-8 rounded-lg overflow-hidden shadow-sm border ${onlineUsers.includes(user.user_id) ? 'border-rose-400' : 'border-gray-200'} bg-white shrink-0`}>
-                    <img src={user.avatar_url || 'https://placehold.co/80x80?text=' + user.name.charAt(0)} className="w-full h-full object-cover" alt={user.name} />
-                  </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center justify-between gap-1">
-                      <h4 className="text-[10px] font-black text-gray-800 truncate">
-                        {user.user_id === userId ? 'Bạn' : user.name}
-                      </h4>
-                      {onlineUsers.includes(user.user_id) ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[7px] font-black text-green-500 uppercase tracking-tighter">Live</span>
-                          <span className="relative flex h-1.5 w-1.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span>
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-[7px] font-black text-gray-400 shrink-0 uppercase tracking-tighter bg-gray-100/50 px-1 rounded">{formatTime(user.updated_at)}</span>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-0.5 mt-1">
-                      <p className={`text-[10px] leading-tight font-black tracking-tight ${!user.address ? 'text-gray-400' : 'text-gray-900 bg-gray-900/5 px-1.5 py-0.5 rounded-md inline-block'}`}>
-                        {cleanAddress(user.address) || (onlineUsers.includes(user.user_id) ? `Đang tìm số nhà...` : `${user.lat.toFixed(5)}, ${user.lng.toFixed(5)}`)}
-                      </p>
-                      {user.user_id !== userId && distance && (
-                        <p className="text-[9px] font-black text-rose-500 flex items-center gap-1 tracking-tighter mt-0.5">
-                          <NavIcon size={8} className="rotate-45 shrink-0" /> Cách bạn {distance}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </motion.button>
-              ))}
-            </div>
-          </div>
-
-          {/* Memories Section - Sleeker rows */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between px-2 mb-2">
-              <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Lưu trữ</p>
-              <span className="text-[8px] font-black text-gray-300 bg-gray-50 px-1.5 py-0.5 rounded-md border border-gray-100">{mapItems.length}</span>
-            </div>
-            <div className="grid grid-cols-1 gap-1">
-              {mapItems.map(item => (
-                <motion.button
-                  key={item.id}
-                  whileHover={{ x: 2 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => handleSelectFromList(item)}
-                  className={`w-full p-1.5 rounded-lg flex items-center gap-2 text-left transition-all ${selectedItem?.id === item.id ? 'bg-rose-500 text-white shadow-lg shadow-rose-200' : 'bg-white/30 hover:bg-white/60 text-gray-700'}`}
-                >
-                  <div className="w-8 h-8 rounded-md overflow-hidden bg-gray-100 shrink-0">
-                    <img 
-                      src={getOptimizedImageUrl(item.photo_url, 80)} 
-                      className="w-full h-full object-cover" 
-                      alt=""
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className={`text-[9px] font-black truncate leading-none mb-1 ${selectedItem?.id === item.id ? 'text-white' : 'text-gray-800'}`}>
-                      {item.title}
-                    </h4>
-                    <p className={`text-[8px] truncate font-medium ${selectedItem?.id === item.id ? 'text-rose-100' : 'text-gray-400'}`}>
-                      {new Date(item.date).toLocaleDateString('vi', { day: '2-digit', month: '2-digit' })} • {cleanAddress((item.location as any)?.address_name) || 'Không rõ địa chỉ'}
-                    </p>
-                  </div>
-                </motion.button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Map Content */}
-      <div className="relative flex-1 min-h-[400px] h-full overflow-hidden">
-        {/* HUD Controls - Minimal & Transparent */}
-        <div className="absolute top-4 left-4 right-4 md:top-6 md:left-6 md:right-6 z-[1000] flex items-center justify-between pointer-events-none">
-          <div className="flex items-center gap-2 pointer-events-auto">
-            {!showList && (
-              <motion.button
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                whileHover={{ scale: 1.05, backgroundColor: 'rgba(255,255,255,0.4)' }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setShowList(true)}
-                className="h-9 px-4 bg-white/20 backdrop-blur-xl border border-white/30 rounded-2xl flex items-center gap-2 shadow-xl shadow-black/5 text-gray-800 transition-all duration-300"
-              >
-                <List size={16} />
-                <span className="text-[9px] font-black uppercase tracking-widest">Hiện danh sách</span>
-              </motion.button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1.5 p-1 bg-white/10 backdrop-blur-xl rounded-full border border-white/20 shadow-xl shadow-black/5 pointer-events-auto">
-            {gpsLocked && (
-              <div className="flex items-center gap-1.5 px-3 py-1 bg-white/40 rounded-full border border-white/40">
-                <div className={`w-1.5 h-1.5 rounded-full ${gpsAccuracy && gpsAccuracy < 50 ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`} />
-                <span className="text-[8px] font-black text-gray-700 uppercase tracking-widest">
-                  GPS: {gpsAccuracy ? Math.round(gpsAccuracy) : '?'}m
-                </span>
+  // Create markers for events
+  const eventIcons = useMemo(() => {
+    return mapEvents.map(event => ({
+      ...event,
+      icon: divIcon({
+        className: 'story-marker',
+        html: `
+          <div class="relative group">
+            <div class="absolute -inset-1 bg-white/50 rounded-[12px] blur-[2px] group-hover:scale-110 transition-all duration-300"></div>
+            <div class="relative w-10 h-10 bg-white rounded-[10px] shadow-xl p-[1.5px] border border-white/50 group-hover:scale-110 transition-transform duration-300">
+              <div class="w-full h-full rounded-[8px] overflow-hidden bg-slate-100">
+                <img src="${event.photo_url}" class="w-full h-full object-cover" />
               </div>
-            )}
-            <button 
-              onClick={() => setMapStyle(mapStyle === 'standard' ? 'hybrid' : 'standard')}
-              className={`px-3 py-1 text-[8px] font-black uppercase tracking-widest rounded-full transition-all ${mapStyle === 'hybrid' ? 'bg-primary text-white' : 'text-gray-600 hover:bg-white/20'}`}
-            >
-              {mapStyle === 'hybrid' ? 'Hybrid' : 'Normal'}
-            </button>
-            <button 
-              onClick={() => setIsFullscreen(!isFullscreen)}
-              className="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 hover:bg-white/20 transition-all"
-              title={isFullscreen ? "Thu nhỏ" : "Toàn màn hình"}
-            >
-              {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
-            {isFullscreen && (
-              <button 
-                onClick={() => setIsFullscreen(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-full text-rose-500 hover:bg-rose-500/10 transition-all"
-              >
-                <X size={16} />
-              </button>
-            )}
+              <div class="absolute -top-1.5 -right-1.5 w-4 h-4 bg-rose-500 rounded-full flex items-center justify-center text-white border-2 border-white">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+              </div>
+            </div>
+            <div class="absolute top-full left-1/2 -translate-x-1/2 pt-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+               <span class="px-2 py-1 bg-slate-900/90 text-white text-[8px] font-black uppercase tracking-widest rounded-lg shadow-lg backdrop-blur-sm">
+                 ${event.title}
+               </span>
+            </div>
           </div>
-        </div>
+        `,
+        iconSize: [40, 40],
+        iconAnchor: [20, 40]
+      })
+    }));
+  }, [mapEvents]);
 
-        <MapContainer
-          center={[10.762622, 106.660172]}
-          zoom={13}
-          style={{ height: '100%', width: '100%', zIndex: 0 }}
-          zoomControl={false}
-          preferCanvas={true}
+  // Map controls UI
+  const Controls = () => {
+    const me = trackedUsers[userId || ''];
+    const other = sortedUsers.find(u => u.user_id !== userId);
+
+    return (
+      <div className="absolute top-6 left-6 z-[1000] flex flex-col gap-3">
+        <button 
+          onClick={() => setActiveTab?.('timeline')}
+          className="w-12 h-12 bg-white/90 backdrop-blur-xl rounded-2xl flex items-center justify-center text-slate-800 shadow-xl border border-white/40 hover:scale-110 active:scale-95 transition-all"
+          title="Quay lại Timeline"
         >
-          {mapStyle === 'hybrid' ? (
-            <TileLayer
-              attribution="&copy; Google Maps"
-              url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
-              maxZoom={20}
-              subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
-            />
-          ) : (
-            <TileLayer
-              attribution="&copy; OpenStreetMap"
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-          )}
+          <NavIcon size={20} className="-rotate-90" />
+        </button>
+        <button 
+          onClick={() => setMapType(prev => prev === 'standard' ? 'hybrid' : 'standard')}
+          className="w-12 h-12 bg-white/90 backdrop-blur-xl rounded-2xl flex items-center justify-center text-primary shadow-xl border border-white/40 hover:scale-110 active:scale-95 transition-all"
+          title={mapType === 'standard' ? "Chuyển sang Vệ tinh" : "Chuyển sang Bản đồ"}
+        >
+          {mapType === 'standard' ? <Sparkles size={16} /> : <MapPin size={16} />}
+        </button>
 
-          <InvalidateSizeHandler trigger={showList || isFullscreen} />
-
-          <FlyToController target={flyToCoords} />
-          
-          <MarkerClusterGroup
-            chunkedLoading
-            maxClusterRadius={50}
+        {me && (
+          <button 
+            onClick={() => {
+              setIsFollowingOther(false);
+              setMapProps({ center: [me.lat, me.lng], zoom: 17 });
+            }}
+            className="w-12 h-12 bg-white/90 backdrop-blur-xl rounded-2xl flex items-center justify-center text-blue-500 shadow-xl border border-white/40 hover:scale-110 active:scale-95 transition-all"
+            title="Vị trí của tôi"
           >
-            {mapItems.map((item) => (
-              <MemoryMarker 
-                key={item.id} 
-                item={item} 
-                onSelect={(selected, pos) => {
-                  setSelectedItem(selected);
-                  setFlyToCoords(pos);
-                }}
-              />
-            ))}
-          </MarkerClusterGroup>
+            <Compass size={20} />
+          </button>
+        )}
 
-          {/* Line connecting the two users */}
-          {userLocation && otherLocation && isOtherOnline && isValidCoords(userLocation) && isValidCoords(otherLocation) && (
-            <Polyline 
-              positions={[userLocation, otherLocation]}
-              pathOptions={{ 
-                color: '#f43f5e', 
-                weight: 2, 
-                dashArray: '10, 10', 
-                opacity: 0.4,
-                lineCap: 'round'
-              }}
-            />
-          )}
-
-          {/* Fit Bounds logic moved to a sub-component */}
-          <FitBoundsComponent 
-            userLoc={userLocation} 
-            otherLoc={otherLocation} 
-            isOtherOnline={isOtherOnline}
-            refocusKey={refocusKey}
-          />
-
-          {/* Render markers for all tracked users */}
-          {Object.values(trackedUsers).map(user => (
-            <CustomMarker
-              key={user.user_id}
-              id={user.user_id}
-              position={[user.lat, user.lng]}
-              imageUrl={user.avatar_url || 'https://placehold.co/100x100?text=' + user.name.charAt(0)}
-              isOffline={!onlineUsers.includes(user.user_id)}
-              color={user.user_id === userId ? 'rose' : 'blue'}
-              address={user.address}
-            />
-          ))}
-
-          <ZoomControl />
-        </MapContainer>
-
-        {/* Mobile Memory List Toggle */}
-        {!showList && (
-           <div className="absolute bottom-6 left-4 z-[1000] md:hidden">
-              <button 
-                onClick={() => setShowList(true)}
-                className="w-10 h-10 bg-white/90 backdrop-blur-md rounded-full border border-white shadow-xl text-gray-800 flex items-center justify-center pointer-events-auto"
-                title="Xem danh sách"
-              >
-                <List size={18} />
-              </button>
-           </div>
+        {other && (
+          <button 
+            onClick={() => {
+              setIsFollowingOther(!isFollowingOther);
+              if (!isFollowingOther) {
+                setMapProps({ center: [other.lat, other.lng], zoom: 17 });
+              }
+            }}
+            className={cn(
+              "w-12 h-12 rounded-2xl flex items-center justify-center shadow-xl border transition-all relative overflow-hidden group",
+              isFollowingOther 
+                ? "bg-rose-500 text-white border-rose-400 scale-110" 
+                : "bg-white/90 backdrop-blur-xl text-rose-500 border-white/40 hover:scale-110"
+            )}
+            title={isFollowingOther ? "Đang theo dõi..." : `Theo dõi ${other.name}`}
+          >
+            <Eye size={20} className={isFollowingOther ? "animate-pulse" : ""} />
+            {other.isOnline && !isFollowingOther && (
+              <div className="absolute top-2 right-2 w-2 h-2 bg-green-500 rounded-full border border-white"></div>
+            )}
+          </button>
         )}
       </div>
+    );
+  };
 
-      {/* Legend / Info */}
-      {!isFullscreen && !showList && (
-        <div className="absolute bottom-6 left-6 z-[1000] max-w-[200px] hidden md:block">
-          <p className="text-[8px] font-bold text-gray-400 bg-white/50 backdrop-blur-sm px-3 py-1.5 rounded-full inline-block">
-            {mapStyle === 'hybrid' ? 'Google Maps Hybrid' : 'OpenStreetMap'}
-          </p>
-        </div>
-      )}
+  return (
+    <div className="relative w-full h-full overflow-hidden bg-slate-900">
+      <Controls />
+
+      {/* Real-time Location Notification */}
+      <AnimatePresence>
+        {locationNotice && (
+          <motion.div
+            initial={{ opacity: 0, x: -50, scale: 0.9 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -50, scale: 0.9 }}
+            className="absolute top-6 left-24 z-[1001] md:left-32"
+          >
+            <div className="bg-white/95 backdrop-blur-xl px-4 py-3 rounded-2xl shadow-2xl border border-white/50 flex items-center gap-3 animate-pulse-subtle">
+              <div className="w-10 h-10 rounded-xl overflow-hidden shadow-sm border-2 border-white flex-shrink-0">
+                {locationNotice.avatar ? (
+                  <img src={locationNotice.avatar} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-300">
+                    <User size={16} />
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest leading-none mb-1">Cập nhật vị trí</span>
+                <span className="text-[11px] font-bold text-slate-800 leading-tight">
+                  <span className="text-primary">{locationNotice.name}</span> đang ở:
+                </span>
+                <span className="text-[10px] font-medium text-slate-500 truncate max-w-[200px]">
+                  {locationNotice.address}
+                </span>
+              </div>
+              <button 
+                onClick={() => setLocationNotice(null)}
+                className="p-1 hover:bg-slate-100 rounded-full text-slate-300 transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <MapContainer 
+        ref={mapRef}
+        center={mapProps.center} 
+        zoom={mapProps.zoom} 
+        className="w-full h-full z-0"
+        zoomControl={false}
+      >
+        {mapType === 'standard' ? (
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+        ) : (
+          <TileLayer
+            attribution='&copy; Google'
+            url="https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+            subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
+            maxZoom={20}
+          />
+        )}
+        <ZoomControl position="bottomright" />
+        <MapViewHandler center={mapProps.center} zoom={mapProps.zoom} />
+
+        {/* Real-time Users */}
+        {sortedUsers.map((u) => (
+          <UserMarker
+            key={u.user_id}
+            position={[u.lat, u.lng]}
+            name={u.name}
+            imageUrl={u.avatar_url}
+            isOffline={!u.isOnline}
+            color={u.user_id === userId ? 'blue' : 'rose'}
+            address={u.address}
+          />
+        ))}
+
+        <MarkerClusterGroup
+          chunkedLoading
+          showCoverageOnHover={false}
+          maxClusterRadius={40}
+          iconCreateFunction={(cluster) => {
+            return divIcon({
+              html: `<div class="w-10 h-10 bg-primary/90 backdrop-blur-md rounded-full flex items-center justify-center text-white text-[11px] font-black border-2 border-white shadow-xl">${cluster.getChildCount()}</div>`,
+              className: 'custom-clustericon',
+              iconSize: [40, 40]
+            });
+          }}
+        >
+          {eventIcons.map((event) => (
+            <Marker 
+              key={event.id}
+              position={[event.location.lat, event.location.lng]} 
+              icon={event.icon}
+              eventHandlers={{
+                click: () => {
+                  setSelectedEvent(event);
+                  setMapProps({ center: [event.location.lat, event.location.lng], zoom: 16 });
+                },
+              }}
+            />
+          ))}
+        </MarkerClusterGroup>
+      </MapContainer>
+
+      {/* Floating Info Card */}
+      <AnimatePresence>
+        {selectedEvent && (
+          <motion.div
+            initial={{ opacity: 0, y: 100, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 100, scale: 0.95 }}
+            className="absolute bottom-12 left-6 right-6 md:left-auto md:right-12 md:w-96 z-[1000]"
+          >
+            <div className="bg-white/95 backdrop-blur-2xl rounded-[2.5rem] p-6 shadow-2xl border border-white/50 relative overflow-hidden group">
+              <div className="absolute top-5 right-5 z-10">
+                <button 
+                  onClick={() => setSelectedEvent(null)}
+                  className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="flex gap-5">
+                <div className="w-28 h-28 rounded-3xl overflow-hidden shadow-lg border-2 border-white flex-shrink-0 group-hover:scale-105 transition-transform duration-500">
+                  <img src={selectedEvent.photo_url} className="w-full h-full object-cover" />
+                </div>
+                <div className="flex-grow min-w-0 pt-1">
+                  <div className="flex items-center gap-2 text-primary/60 mb-2">
+                    <Calendar size={12} strokeWidth={3} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">{formatDate(selectedEvent.date)}</span>
+                  </div>
+                  <h3 className="text-lg font-black text-slate-800 tracking-tight leading-tight mb-2 truncate">{selectedEvent.title}</h3>
+                  <div className="flex items-center gap-2">
+                    <div className="flex -space-x-2">
+                      <div className="w-6 h-6 rounded-full border-2 border-white bg-rose-100 flex items-center justify-center text-rose-500">
+                        <Heart size={10} fill="currentColor" />
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-bold text-slate-400">Khoảnh khắc đáng nhớ</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 p-4 bg-slate-50/80 rounded-2xl border border-slate-100/50">
+                <p className="text-xs font-medium text-slate-600 line-clamp-2 italic leading-relaxed mb-4">
+                  "{selectedEvent.description}"
+                </p>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center text-primary/70 border border-slate-50">
+                    <MapPin size={18} />
+                  </div>
+                  <div className="min-w-0 flex-grow">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-300">Nơi lưu dấu</p>
+                    <p className="text-[11px] font-bold text-slate-600 truncate">{cleanAddress(selectedEvent.location?.address_name)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setActiveTab?.('timeline')}
+                className="mt-5 w-full py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-slate-900/20 hover:bg-slate-800 transition-all flex items-center justify-center gap-2 group"
+              >
+                <span>Xem chi tiết câu chuyện</span>
+                <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

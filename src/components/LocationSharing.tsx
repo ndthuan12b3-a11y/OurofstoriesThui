@@ -1,73 +1,38 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { showNotification } from '../lib/notifications';
-import { usePresence } from '../lib/PresenceContext';
 import { reverseGeocode } from '../lib/geocoding';
+import { usePresence } from '../lib/PresenceContext';
 
 interface LocationSharingProps {
   userId: string;
 }
 
 export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
-  const lastUpdateRef = React.useRef<number>(0);
-  const lastGeocodeRef = React.useRef<number>(0);
-  const lastAddrRef = React.useRef<string>("");
-  const lastPosRef = React.useRef<[number, number] | null>(null);
-  const { updateLocation: updatePresenceLocation } = usePresence();
+  const { updateLocation } = usePresence();
+  const lastUpdateRef = useRef<number>(0);
+  const lastCoordsRef = useRef<{lat: number, lng: number} | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!userId || !supabase) return;
 
     const updateLocationInDB = async (lat: number, lng: number) => {
-      if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
-      
-      const now = Date.now();
-      const movedFar = lastPosRef.current && 
-        (Math.abs(lat - lastPosRef.current[0]) > 0.0003 || Math.abs(lng - lastPosRef.current[1]) > 0.0003);
-
-      // 1. Cập nhật toạ độ lên Presence NGAY LẬP TỨC
-      updatePresenceLocation(lat, lng, lastAddrRef.current);
-
-      // 2. Chạy tìm địa chỉ ngầm
-      const isFirstRun = !lastPosRef.current;
-      if (isFirstRun || now - lastGeocodeRef.current > 30000 || movedFar) {
-        lastGeocodeRef.current = now;
-        reverseGeocode(lat, lng).then(newAddr => {
-          if (newAddr && newAddr !== lastAddrRef.current) {
-            lastAddrRef.current = newAddr;
-            // Cập nhật Presence ngay cho mọi người thấy
-            updatePresenceLocation(lat, lng, newAddr);
-            
-            // Đồng bộ luôn vào DB để lưu trữ lâu dài
-            if (navigator.onLine) {
-              fetch('/api/location/update', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: userId, lat, lng, address: newAddr })
-              }).catch(() => {});
-            }
-          }
-        }).catch(() => {});
-      }
-
-      // 3. Database Sync (Throttled)
-      if (!navigator.onLine) return;
-      if (now - lastUpdateRef.current > 10000 || movedFar || !lastPosRef.current) {
-        lastUpdateRef.current = now;
-        lastPosRef.current = [lat, lng];
-        const body = { user_id: userId, lat, lng, address: lastAddrRef.current || undefined };
+      try {
+        const address = await reverseGeocode(lat, lng);
         
-        fetch('/api/location/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        }).catch(() => {
-          // Fallback direct
-          supabase.from('locations').upsert({
-            user_id: userId, lat, lng, address: lastAddrRef.current || null,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'user_id' });
-        });
+        // Update presence for real-time smoothness
+        updateLocation(lat, lng, address);
+
+        // Update locations table for real-time tracking
+        await supabase.from('locations').upsert({
+          user_id: userId,
+          lat,
+          lng,
+          address,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id' });
+
+      } catch (err) {
+        console.error("Location update failed:", err);
       }
     };
 
@@ -75,92 +40,96 @@ export const LocationSharing: React.FC<LocationSharingProps> = ({ userId }) => {
 
     const startWatching = () => {
       if ("geolocation" in navigator) {
-        // 1. Lấy vị trí ngay lập tức (phản ứng nhanh)
-        navigator.geolocation.getCurrentPosition(
-          (pos) => updateLocationInDB(pos.coords.latitude, pos.coords.longitude),
-          (err) => {
-            if (err.code !== 3) {
-               console.warn(`Initial position error (Code ${err.code}): ${err.message}`);
+        // 1. Lấy vị trí ngay lập tức (phản ứng nhanh) - Cơ chế Fallback thông minh
+        const getInitialPos = (useHighAccuracy = true, retryCount = 0) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => updateLocationInDB(pos.coords.latitude, pos.coords.longitude),
+            (err) => {
+              // Nếu lỗi timeout ở chế độ cao, thử lại với chế độ thấp hơn cho nhanh
+              if (useHighAccuracy && (err.code === 3 || err.code === 1)) {
+                console.debug("High accuracy failed/timeout, falling back to basic...");
+                getInitialPos(false, 0); 
+              } else if (retryCount < 1) {
+                setTimeout(() => getInitialPos(useHighAccuracy, retryCount + 1), 2000);
+              }
+            },
+            { 
+              enableHighAccuracy: useHighAccuracy, 
+              timeout: useHighAccuracy ? 10000 : 5000, 
+              maximumAge: 5000 
             }
-          },
-          { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
-        );
+          );
+        };
+        getInitialPos();
 
-        // 2. Theo dõi liên tục (độ chính xác cao)
+        // 2. Theo dõi liên tục - Cân bằng giữa độ chính xác và tốc độ
         watchId = navigator.geolocation.watchPosition(
           async (position) => {
             const { latitude, longitude, accuracy } = position.coords;
-            const now = Date.now();
+            
+            // Vẫn chấp nhận sai số hỗ trợ (Wifi/Cell) để map luôn có điểm
+            if (accuracy > 300) return; 
 
-            // Lọc bỏ sai số quá lớn (> 150m) để tránh vị trí nhảy lung tung
-            if (accuracy > 150) {
-              console.warn(`[GPS] Accuracy too low: ${accuracy}m. Skipping point.`);
-              return;
-            }
-
-            // Throttling for DB: Update DB every 30s hoặc di chuyển > 10m
             const shouldUpdateDB = () => {
-              if (!lastPosRef.current) return true;
-              if (now - lastUpdateRef.current > 30000) return true;
+              const now = Date.now();
+              const timeDiff = now - lastUpdateRef.current;
               
-              const dLat = latitude - lastPosRef.current[0];
-              const dLng = longitude - lastPosRef.current[1];
-              const distSq = dLat*dLat + dLng*dLng;
-              return distSq > 0.00000001; // ~10 meters squared (decreased sensitivity for DB writes)
+              if (!lastCoordsRef.current) return true;
+              
+              const dist = Math.sqrt(
+                Math.pow(latitude - lastCoordsRef.current.lat, 2) + 
+                Math.pow(longitude - lastCoordsRef.current.lng, 2)
+              );
+
+              // Update if moved significantly or if 1 minute has passed
+              return dist > 0.0001 || timeDiff > 60000;
             };
 
             if (shouldUpdateDB()) {
-              lastUpdateRef.current = now;
-              lastPosRef.current = [latitude, longitude];
+              lastUpdateRef.current = Date.now();
+              lastCoordsRef.current = { lat: latitude, lng: longitude };
               updateLocationInDB(latitude, longitude);
-            } else {
-              // Vẫn cập nhật Real-time Presence để mượt mà nhất có thể
-              updatePresenceLocation(latitude, longitude, lastAddrRef.current);
             }
-
-            // Sync accuracy with UI
-            window.dispatchEvent(new CustomEvent('location_accuracy', { detail: { accuracy } }));
           },
           (error) => {
-            const msg = error instanceof Error ? error.message : 
-                        (typeof error === 'object' && error !== null && 'message' in error) ? (error as any).message : 
+            const msg = error.code === 1 ? 'Permission Denied' : 
+                        error.code === 2 ? 'Position Unavailable' : 
+                        error.code === 3 ? 'Timeout' : 
                         String(error);
             console.warn(`Geolocation watch error (Code ${error.code || '?'}): ${msg}`);
           },
-          { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
+          { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
         );
       }
     };
 
     startWatching();
 
-    // Re-active location sharing when user returns to tab
-    const handleVisibility = () => {
+    // Auto-refresh when app becomes visible again
+    const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        console.log("Tab focused, refreshing location...");
-        if ("geolocation" in navigator) {
+        const now = Date.now();
+        if (now - lastUpdateRef.current > 30000) { // Nếu đã quá 30 giây chưa update
           navigator.geolocation.getCurrentPosition(
             (pos) => updateLocationInDB(pos.coords.latitude, pos.coords.longitude),
             (err) => {
-              const msg = err instanceof Error ? err.message : String(err);
-              if (err.code !== 3) { // 3 is Timeout, which is common on mobile wake-up
-                console.warn(`Visibility refresh error: ${msg}`);
-              } else {
+              if (err.code !== 3) {
                 console.debug("Visibility refresh timeout - ignoring");
               }
             },
-            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
           );
         }
       }
     };
-    document.addEventListener('visibilitychange', handleVisibility);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       if (watchId) navigator.geolocation.clearWatch(watchId);
-      document.removeEventListener('visibilitychange', handleVisibility);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [userId]);
 
-  return null; // This component doesn't render anything
+  return null;
 };

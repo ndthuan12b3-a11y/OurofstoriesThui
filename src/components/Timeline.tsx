@@ -23,6 +23,7 @@ interface TimelineProps {
   config: AppConfig;
   userRole: string;
   onViewOnMap?: (event: Event) => void;
+  setActiveTab?: (tab: string) => void;
 }
 
 interface Event {
@@ -160,7 +161,7 @@ const LoveTimer = ({ startDate }: { startDate: string }) => {
   );
 };
 
-export const Timeline: React.FC<TimelineProps> = ({ config, userRole, onViewOnMap }) => {
+export const Timeline: React.FC<TimelineProps> = ({ config, userRole, onViewOnMap, setActiveTab }) => {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
@@ -450,7 +451,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole, onViewOnMa
           
           <div className="hidden sm:flex items-center gap-2">
             <button
-              onClick={() => setShowMap(!showMap)}
+              onClick={() => setActiveTab ? setActiveTab('map') : setShowMap(!showMap)}
               className={cn(
                 "p-3 rounded-2xl soft-shadow transition-all group",
                 showMap ? "bg-slate-800 text-white" : "bg-slate-50 text-slate-400 hover:bg-slate-100"
@@ -474,7 +475,7 @@ export const Timeline: React.FC<TimelineProps> = ({ config, userRole, onViewOnMa
         {/* Mobile Action Buttons */}
         <div className="flex sm:hidden gap-2 h-14">
           <button
-            onClick={() => setShowMap(!showMap)}
+            onClick={() => setActiveTab ? setActiveTab('map') : setShowMap(!showMap)}
             className={cn(
               "flex-1 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all",
               showMap ? "bg-slate-800 text-white" : "bg-white text-slate-400 border border-slate-100"

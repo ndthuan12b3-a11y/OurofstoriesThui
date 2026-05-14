@@ -7,48 +7,22 @@ export function cleanAddress(address: string | null | undefined): string {
   // 1. Phân tách địa chỉ thành các phần
   const segments = address.split(',').map(s => s.trim()).filter(Boolean);
   
-  // 2. Lọc bỏ các cấp hành chính (Ấp, Xã, Phường, Quận, Huyện...)
-  const excludeKeywords = ['ấp', 'xã', 'phường', 'huyện', 'quận', 'tỉnh', 'thành phố', 'thanh pho', 'district', 'province', 'thị trấn', 'thị xã'];
+  // 2. Lọc bỏ các cấp hành chính lớn (Tỉnh, Thành phố, Quốc gia)
+  const excludeKeywords = ['tỉnh', 'thành phố', 'thanh pho', 'quốc gia', 'vietnam', 'việt nam', 'province', 'city', 'country'];
   
-  // Lấy các phần không chứa từ khóa hành chính (thường là số nhà và đường)
-  const streetParts = segments.filter(s => {
+  // Lấy các phần chi tiết (Số nhà, đường, phường, quận)
+  const detailParts = segments.filter(s => {
     const l = s.toLowerCase();
     return !excludeKeywords.some(k => l.includes(k));
   });
 
-  if (streetParts.length >= 1) {
-    let houseNum = '';
-    let streetName = '';
-
-    // Kiểm tra xem phần đầu tiên có phải là số nhà không
-    const firstPart = streetParts[0];
-    if (/^\d/.test(firstPart)) {
-      houseNum = firstPart.replace(/^số\s+/gi, '').trim();
-      streetName = streetParts.slice(1).join(', ');
-    } else {
-      streetName = streetParts.join(', ');
-    }
-
-    let result = '';
-    if (houseNum) {
-      result += `Số ${houseNum} `;
-    }
-    
-    if (streetName) {
-      // Thêm tiền tố "Đường" nếu chưa có
-      const streetLower = streetName.toLowerCase();
-      if (!streetLower.includes('đường') && !streetLower.includes('phố') && !streetLower.includes('ql') && !streetLower.includes('quốc lộ')) {
-        result += `Đường ${streetName}`;
-      } else {
-        result += streetName;
-      }
-    }
-
-    return result.trim() || segments[0];
+  if (detailParts.length >= 1) {
+    // Trả về tối đa 3 phần chi tiết đầu tiên (thường là Tên -> Số nhà/Đường -> Phường/Quận)
+    return detailParts.slice(0, 3).join(', ');
   }
 
   // Fallback
-  return segments[0].replace(/^(Ấp|Xã|Phường)\s+/gi, '').trim();
+  return segments[0];
 }
 
 export function cn(...inputs: ClassValue[]) {

@@ -12,8 +12,8 @@ import { Modal } from './Modal';
 import { cn, formatDate } from '../lib/utils';
 import { compressImage } from '../lib/imageUtils';
 import { useMusic, useMusicProgress } from '../lib/MusicContext';
-import { Play, Pause, SkipBack, SkipForward, Repeat } from 'lucide-react';
-
+// Management.tsx logic cleanup
+import { Play, Pause, SkipBack, SkipForward, Repeat, MapPin } from 'lucide-react';
 import { LocationPicker } from './LocationPicker';
 
 const MusicManagementPlayer: React.FC = () => {
@@ -106,7 +106,7 @@ const PRIMARY_CONFIG_ID = '6857068c-7cc5-45ce-8099-23f0e3264251';
 export const Management: React.FC<ManagementProps> = ({ 
   userRole, config, onConfigUpdate, userId, userEmail, userProfile, onProfileUpdate 
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'config' | 'events' | 'gallery' | 'music' | 'stories' | 'users' | 'traccar'>('dashboard');
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'config' | 'events' | 'gallery' | 'music' | 'stories' | 'users'>('dashboard');
   
   // Core Logic helpers
   const HAS_VIP_ACCESS = () => userRole === 'vip' || userRole === 'admin';
@@ -116,8 +116,6 @@ export const Management: React.FC<ManagementProps> = ({
   const [music, setMusic] = useState<any[]>([]);
   const [stories, setStories] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
-  const [traccarLogs, setTraccarLogs] = useState<any[]>([]);
-  const [isCleaning, setIsCleaning] = useState(false);
   const [stats, setStats] = useState({
     totalEvents: 0,
     totalPhotos: 0,
@@ -437,15 +435,6 @@ export const Management: React.FC<ManagementProps> = ({
           if (data) setUsers(data);
         }
       }
-      
-      if (activeSubTab === 'traccar') {
-        const { data } = await supabase
-          .from('location_history')
-          .select('*')
-          .order('timestamp', { ascending: false })
-          .limit(20);
-        if (data) setTraccarLogs(data);
-      }
     } catch (error: any) {
       console.error("Lỗi khi tải dữ liệu:", error);
       showNotification("Không thể tải dữ liệu!", true);
@@ -573,56 +562,6 @@ export const Management: React.FC<ManagementProps> = ({
     }
   };
 
-  const handleCleanupHistory = async () => {
-    if (!confirm("Hệ thống sẽ dọn dẹp các vị trí trùng lặp (di chuyển dưới 5m) trong lịch sử. Bạn có chắc chắn?")) return;
-    setIsCleaning(true);
-    try {
-      // Fetch all history for the user
-      const { data: history } = await supabase
-        .from('location_history')
-        .select('*')
-        .order('user_id', { ascending: true })
-        .order('timestamp', { ascending: true });
-      
-      if (!history || history.length < 2) {
-        showNotification("Không tìm thấy dữ liệu cần dọn dẹp.");
-        return;
-      }
-
-      const toDelete: string[] = [];
-      let last: any = null;
-
-      history.forEach(curr => {
-        if (last && last.user_id === curr.user_id) {
-          const dLat = Math.abs(Number(curr.lat) - Number(last.lat));
-          const dLng = Math.abs(Number(curr.lng) - Number(last.lng));
-          if (dLat < 0.00005 && dLng < 0.00005) {
-            toDelete.push(curr.id);
-            return; // Don't update 'last' to catch many close entries in a row
-          }
-        }
-        last = curr;
-      });
-
-      if (toDelete.length > 0) {
-        // Supabase doesn't support massive batch deletes by array in simple way easily
-        // We'll delete in chunks of 50
-        for (let i = 0; i < toDelete.length; i += 50) {
-          const chunk = toDelete.slice(i, i + 50);
-          await supabase.from('location_history').delete().in('id', chunk);
-        }
-        showNotification(`Đã dọn dẹp ${toDelete.length} vị trí trùng lặp!`);
-      } else {
-        showNotification("Không phát hiện vị trí trùng lặp nào.");
-      }
-      fetchData();
-    } catch (err) {
-      showNotification("Lỗi khi dọn dẹp lịch sử.", true);
-    } finally {
-      setIsCleaning(false);
-    }
-  };
-
   return (
     <div className="animate-fadeIn pb-20">
       <div className="mb-10 md:mb-16">
@@ -635,7 +574,6 @@ export const Management: React.FC<ManagementProps> = ({
               { id: 'gallery', label: 'Kho Ảnh', icon: ImageIcon, count: stats.totalPhotos },
               { id: 'stories', label: 'Truyện', icon: BookOpen, count: stats.totalStories },
               { id: 'users', label: 'Thành Viên', icon: Users, adminOnly: true, count: stats.totalUsers },
-              { id: 'traccar', label: 'Traccar Client', icon: ShieldAlert, adminOnly: true },
             ].filter(t => !t.adminOnly || userRole === 'admin').map((tab) => (
               <button
                 key={tab.id}
@@ -921,120 +859,7 @@ export const Management: React.FC<ManagementProps> = ({
           </div>
         )}
 
-        {activeSubTab === 'traccar' && (
-          <div className="space-y-8">
-            <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-gray-100">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter">Cấu hình Traccar Client</h3>
-                  <p className="text-xs text-gray-500 font-medium mt-1">Sử dụng ứng dụng Traccar Client (có sẵn trên App Store/CH Play) để cập nhật vị trí.</p>
-                </div>
-                <div className="flex gap-4">
-                  <button 
-                    onClick={handleCleanupHistory}
-                    disabled={isCleaning}
-                    className="px-6 py-3 bg-rose-50 text-rose-500 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all flex items-center gap-2"
-                  >
-                    {isCleaning ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                    Tối ưu dữ liệu
-                  </button>
-                  <button 
-                    onClick={fetchData}
-                    className="p-3 bg-gray-50 text-gray-400 rounded-2xl hover:text-primary transition-all"
-                  >
-                    <RefreshCw size={20} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-6">
-                  <div className="p-6 bg-blue-50/50 rounded-3xl border border-blue-100">
-                    <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-4">Cài đặt GPS Tracker (Cho iPhone/Android)</p>
-                    <div className="space-y-6">
-                      <div>
-                        <p className="text-xs font-black text-gray-800 mb-2">Lựa chọn 1: Traccar Client (Khuyên dùng)</p>
-                        <ol className="space-y-3 text-[11px] font-bold text-gray-600 list-decimal pl-4">
-                          <li>Tải <b>Traccar Client</b> từ App Store / CH Play.</li>
-                          <li>Địa chỉ máy chủ: <code className="bg-white px-2 py-1 rounded border border-blue-200 text-primary">https://ourofstories-thui.vercel.app/api/traccar</code></li>
-                          <li>Mã định danh thiết bị: <code className="bg-white px-2 py-1 rounded border border-blue-200 text-gray-800">{userId}</code></li>
-                          <li>Tần suất: 60 giây. Bật <b>Trạng thái dịch vụ</b>.</li>
-                        </ol>
-                      </div>
-
-                      <div className="pt-4 border-t border-blue-100/50">
-                        <p className="text-xs font-black text-gray-800 mb-2">Lựa chọn 2: OwnTracks (Giao diện đẹp cho iPhone)</p>
-                        <ol className="space-y-3 text-[11px] font-bold text-gray-600 list-decimal pl-4">
-                          <li>Tải <b>OwnTracks</b> từ App Store.</li>
-                          <li>Vào <b>Settings</b> &gt; <b>Mode</b> &gt; Chọn <b>HTTP</b>.</li>
-                          <li>
-                            Mục <b>URL</b>, nhập địa chỉ kèm ID của bạn:
-                            <div className="mt-2 p-3 bg-white rounded-xl border border-blue-200 font-mono text-primary break-all select-all">
-                              https://ourofstories-thui.vercel.app/api/traccar?id={userId}
-                            </div>
-                          </li>
-                          <li>
-                            Mục <b>Identification</b>:
-                            <ul className="mt-1 space-y-1 text-gray-500 font-medium list-disc pl-4">
-                              <li>Tracker ID: Nhập 2 ký tự (ví dụ: "Me").</li>
-                              <li>Device ID: Nhập "iPhone" hoặc tên máy.</li>
-                            </ul>
-                          </li>
-                        </ol>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="p-6 bg-amber-50/50 rounded-3xl border border-amber-100">
-                    <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-2">Lưu ý bảo mật</p>
-                    <p className="text-[10px] text-amber-600 font-medium leading-relaxed">
-                      ID thiết bị là khóa bí mật để định danh bạn trên bản đồ. Không chia sẻ ID này cho người khác.
-                      Web sẽ tự động tối ưu hóa dữ liệu (xóa các vị trí trùng lặp) để tiết kiệm dung lượng.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-gray-900 rounded-[2.5rem] p-6 text-white shadow-2xl relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 blur-3xl rounded-full -mr-16 -mt-16"></div>
-                  <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.3em] mb-4">Trạng thái hệ thống</h4>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center py-2 border-b border-white/10">
-                      <span className="text-gray-400 text-[10px] font-bold uppercase">Database Sync</span>
-                      <span className="text-green-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
-                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" /> Đang hoạt động
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-white/10">
-                      <span className="text-gray-400 text-[10px] font-bold uppercase">Optimization Engine</span>
-                      <span className="text-blue-400 text-[10px] font-black uppercase tracking-widest">Tự động (Enabled)</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-white/10">
-                      <span className="text-gray-400 text-[10px] font-bold uppercase">Geocoding Level</span>
-                      <span className="text-amber-400 text-[10px] font-black uppercase tracking-widest">Đường & Số nhà (VN)</span>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-8">
-                     <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4">20 bản ghi mới nhất</p>
-                     <div className="space-y-2 max-h-[250px] overflow-y-auto no-scrollbar">
-                        {traccarLogs.map((log, idx) => (
-                          <div key={log.id} className="p-3 bg-white/5 rounded-xl border border-white/5 flex flex-col gap-1">
-                            <div className="flex justify-between text-[8px] font-black uppercase">
-                              <span className="text-primary tracking-widest">#{traccarLogs.length - idx}</span>
-                              <span className="text-gray-500">{new Date(log.timestamp).toLocaleTimeString('vi-VN')}</span>
-                            </div>
-                            <p className="text-[10px] font-medium text-gray-300 truncate">{log.address || `${log.lat}, ${log.lng}`}</p>
-                          </div>
-                        ))}
-                        {traccarLogs.length === 0 && <p className="text-center py-10 text-[10px] font-black text-gray-600 uppercase tracking-widest">Chưa có dữ liệu</p>}
-                     </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        {activeSubTab !== 'config' && activeSubTab !== 'dashboard' && activeSubTab !== 'traccar' && (
+        {activeSubTab !== 'config' && activeSubTab !== 'dashboard' && (
           <div className="bg-white rounded-2xl soft-shadow overflow-hidden">
             {activeSubTab === 'music' && (
               <div className="p-6 border-b bg-gray-50/50">

@@ -59,7 +59,7 @@ export const Navigation: React.FC<NavigationProps> = ({
       */}
       <div className={cn(
         "fixed top-4 left-4 right-4 md:left-24 md:right-8 z-40 transition-all duration-300",
-        (hidden || activeTab === 'map') && "opacity-0 -translate-y-full pointer-events-none"
+        hidden && "opacity-0 -translate-y-full pointer-events-none"
       )}>
         <div className="flex items-center justify-end gap-4">
           {/* Music Hub - Compact & Expandable - Only show in Home tab per user request */}
@@ -182,7 +182,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           visible: { y: 0, opacity: 1 },
           hidden: { y: "150%", opacity: 0 },
         }}
-        animate={hidden || modalOpen || activeTab === 'map' ? "hidden" : "visible"}
+        animate={hidden || modalOpen ? "hidden" : "visible"}
         transition={{ duration: 0.35, ease: "easeInOut" }}
         className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/70 backdrop-blur-xl border border-white/40 p-2 z-[60] rounded-[2rem] soft-shadow w-auto min-w-[280px]"
       >

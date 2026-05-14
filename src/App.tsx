@@ -2,6 +2,7 @@ import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'motion/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { supabase } from './lib/supabase';
 import { UserRole, AppConfig } from './types';
 
@@ -43,6 +44,16 @@ const DEFAULT_CONFIG: AppConfig = {
 };
 
 const SUPABASE_CONFIGURED = !!((import.meta as any).env.VITE_SUPABASE_URL && (import.meta as any).env.VITE_SUPABASE_ANON_KEY);
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      gcTime: 1000 * 60 * 30, // 30 minutes
+      retry: 1,
+    },
+  },
+});
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -117,7 +128,10 @@ export default function App() {
       if (error) {
         console.error("Session error:", error.message);
         if (error.message.includes('refresh_token_not_found') || error.message.includes('Invalid Refresh Token')) {
-          supabase.auth.signOut();
+          await supabase.auth.signOut();
+          // Force clear local storage just in case
+          localStorage.removeItem('supabase.auth.token');
+          setSession(null);
         }
         setLoadingRole(false);
       } else {
@@ -136,13 +150,17 @@ export default function App() {
 
     initApp();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session);
       if (session) {
         // Fetch role and profile quietly in background if already loaded
         fetchUserRole(session.user.id, userRole === 'none');
         fetchUserProfile(session.user.id);
       } else {
+        if (event === 'SIGNED_OUT') {
+          // Additional cleanup on sign out
+          localStorage.removeItem('supabase.auth.token');
+        }
         setUserRole('none');
         setLoadingRole(false);
         setIsManagerAuthenticated(false);
@@ -336,8 +354,9 @@ export default function App() {
   const hasBackgroundAccess = HAS_VIP_ACCESS();
 
   return (
-    <PresenceProvider userId={session?.user?.id}>
-      <div className="min-h-screen flex flex-col md:flex-row">
+    <QueryClientProvider client={queryClient}>
+      <PresenceProvider userId={session?.user?.id}>
+        <div className="min-h-screen flex flex-col md:flex-row">
         {session?.user?.id && <LocationSharing userId={session.user.id} />}
         <Toaster position="top-center" />
         <MemoriesNotification />
@@ -395,19 +414,30 @@ export default function App() {
           config={config}
         />
 
-        <main className="flex-grow md:ml-16 p-4 md:p-12 pb-32 md:pb-12">
-          <div className="container mx-auto max-w-6xl">
+        <main className={cn(
+          "flex-grow transition-all duration-300",
+          activeTab === 'map' ? "p-0 md:ml-0" : "md:ml-16 p-4 md:p-12 pb-32 md:pb-12"
+        )}>
+          <div className={cn(
+            "h-full mx-auto transition-all duration-300",
+            activeTab === 'map' ? "w-full max-w-none h-screen" : "container max-w-6xl"
+          )}>
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
+                exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.3, ease: "easeInOut" }}
+                className={cn(
+                  "relative w-full mx-auto",
+                  activeTab === 'map' ? "h-screen" : "min-h-screen"
+                )}
               >
                 <Suspense fallback={
                   activeTab === 'home' ? <GallerySkeleton /> : 
                   activeTab === 'timeline' ? <TimelineSkeleton /> : 
+                  activeTab === 'map' ? <div className="h-screen bg-slate-50 flex items-center justify-center text-[10px] font-black text-slate-300 uppercase tracking-widest">Đang tải bản đồ...</div> :
                   <div className="flex items-center justify-center p-12"><div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>
                 }>
                   {activeTab === 'home' && (
@@ -424,11 +454,12 @@ export default function App() {
                           setSelectedMapEvent(event);
                           setActiveTab('map');
                         }}
+                        setActiveTab={setActiveTab}
                       />
                     </div>
                   )}
                   {activeTab === 'map' && (
-                    <div id="map-container" className="animate-fadeIn">
+                    <div id="map-container" className="h-full w-full overflow-hidden">
                       <StoryMap 
                         events={events} 
                         config={config} 
@@ -529,5 +560,6 @@ export default function App() {
         </AnimatePresence>
       </div>
     </PresenceProvider>
+  </QueryClientProvider>
   );
 }

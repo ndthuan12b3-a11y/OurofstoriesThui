@@ -1,105 +1,103 @@
-interface NominatimAddress {
+import axios from 'axios';
+
+export interface NominatimAddress {
   road?: string;
   suburb?: string;
+  neighbourhood?: string;
+  village?: string;
+  town?: string;
   city?: string;
   state?: string;
   country?: string;
+  amenity?: string;
+  shop?: string;
+  tourism?: string;
+  leisure?: string;
+  building?: string;
+  house_number?: string;
+  office?: string;
+  apartment?: string;
+  flat?: string;
+  street_number?: string;
+  unit?: string;
+  room?: string;
+  pedestrian?: string;
+  path?: string;
+  street?: string;
+  lane?: string;
+  city_district?: string;
 }
 
 interface NominatimResponse {
-  address?: NominatimAddress;
-  display_name?: string;
-  lat?: string;
-  lon?: string;
+  address: NominatimAddress;
+  display_name: string;
 }
 
-const GEO_CACHE_KEY = 'geocoding_cache_v1';
-const getCache = (): Record<string, string> => {
-  try {
-    return JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}');
-  } catch { return {}; }
-};
-
-const saveToCache = (key: string, val: string) => {
-  try {
-    const cache = getCache();
-    cache[key] = val;
-    const keys = Object.keys(cache);
-    if (keys.length > 100) delete cache[keys[0]];
-    localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(cache));
-  } catch {}
-};
-
 export const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
-  // Use 5 decimal places (~1.1m precision) for cache keys to correctly identify different houses
-  const cacheKey = `${lat.toFixed(5)},${lng.toFixed(5)}`;
-  const cached = getCache()[cacheKey];
-  if (cached) return cached;
+  if (!lat || !lng) return "";
 
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=vi&email=AlanwalkerT2002@gmail.com`;
-    const response = await fetch(url);
+    
+    // Add 10s timeout to fetch
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
     
     if (!response.ok) return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
     
-    const data: NominatimResponse = await response.json();
+    const data = await response.json() as NominatimResponse;
     let result = "";
 
     if (data && data.address) {
-      const addr = data.address as any;
-      // Mở rộng các trường tiềm năng chứa số nhà/tên toà nhà
-      const house = addr.house_number || addr.building || addr.house_name || addr.office || addr.apartment || addr.flat || addr.street_number || addr.unit || addr.room;
-      const street = addr.road || addr.pedestrian || addr.path || addr.street || addr.lane || addr.cycleway || addr.footway;
-      const area = addr.suburb || addr.neighbourhood || addr.village || addr.city_district || addr.quarter || addr.hamlet || addr.croft;
+      const addr = data.address;
       
-      let addressResult = "";
+      // Tên địa danh (cafe, nhà hàng, công ty...)
+      const placeName = addr.amenity || addr.shop || addr.tourism || addr.leisure || addr.building;
+      
+      // Số nhà/Số tầng
+      const house = addr.house_number || addr.street_number || addr.office || addr.apartment || addr.flat || addr.unit || addr.room;
+      
+      // Đường phố
+      const street = addr.road || addr.pedestrian || addr.path || addr.street || addr.lane;
+      
+      const parts: string[] = [];
+      
       if (house && street) {
         const formattedHouse = /^\d/.test(house) && !house.toLowerCase().includes('số') ? `Số ${house}` : house;
-        const formattedStreet = !street.toLowerCase().includes('đường') && !street.toLowerCase().includes('phố') ? `Đường ${street}` : street;
-        addressResult = `${formattedHouse} ${formattedStreet}`;
-      } else if (house) {
-        addressResult = /^\d/.test(house) && !house.toLowerCase().includes('số') ? `Số ${house}` : house;
+        const formattedStreet = !street.toLowerCase().includes('đường') && !street.toLowerCase().includes('phố') ? `đường ${street}` : street;
+        parts.push(`${formattedHouse}, ${formattedStreet}`);
       } else if (street) {
-        addressResult = !street.toLowerCase().includes('đường') && !street.toLowerCase().includes('phố') ? `Đường ${street}` : street;
-      } else if (area) {
-        addressResult = area;
+        const formattedStreet = !street.toLowerCase().includes('đường') && !street.toLowerCase().includes('phố') ? `Đường ${street}` : street;
+        parts.push(formattedStreet);
+      } else if (house) {
+        const formattedHouse = /^\d/.test(house) && !house.toLowerCase().includes('số') ? `Số ${house}` : house;
+        parts.push(formattedHouse);
+      } else {
+        // Tên địa danh (cafe, nhà hàng, công ty...) nếu không có số nhà/đường
+        const placeName = addr.amenity || addr.shop || addr.tourism || addr.leisure || addr.building;
+        if (placeName) parts.push(placeName);
       }
       
-      if (addressResult) {
-        result = addressResult;
+      const area = addr.suburb || addr.city_district || addr.village || addr.town;
+      
+      if (parts.length === 0 && area) {
+        parts.push(area);
+      }
+      
+      if (parts.length > 0) {
+        result = parts.join(', ');
       } else {
-        const fallback = data.display_name ? data.display_name.split(',').slice(0, 2).map((s: string) => s.trim()).join(', ') : "";
+        const fallback = data.display_name ? data.display_name.split(',').slice(0, 1).map((s: string) => s.trim()).join(', ') : "";
         result = fallback || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
       }
-    } else {
-      result = data?.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-    }
-
-    if (result) saveToCache(cacheKey, result);
-    return result;
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.warn("Geocoding fallback used:", msg);
-    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-  }
-};
-
-export const searchGeocode = async (query: string, bias?: { lat: number, lng: number }): Promise<any[]> => {
-  try {
-    let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10&accept-language=vi&email=AlanwalkerT2002@gmail.com`;
-    if (bias) {
-      const b = 1.0; 
-      const viewbox = `${bias.lng - b},${bias.lat + b},${bias.lng + b},${bias.lat - b}`;
-      url += `&viewbox=${viewbox}`;
     }
     
-    const response = await fetch(url);
-
-    if (!response.ok) return [];
-    return await response.json();
+    return result || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.warn("Search geocode failed:", msg);
-    return [];
+    console.error("Geocoding error:", error);
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   }
 };

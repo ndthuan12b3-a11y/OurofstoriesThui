@@ -11,17 +11,22 @@ interface PresenceState {
 }
 
 const PresenceContext = createContext<PresenceState | undefined>(undefined);
+const CACHE_KEY_OTHER_LOC = 'last_known_other_location';
 
 export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: string | undefined }> = ({ children, userId }) => {
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [isOtherOnline, setIsOtherOnline] = useState(false);
   const [isOtherActiveRecent, setIsOtherActiveRecent] = useState(false);
-  const [otherLocation, setOtherLocation] = useState<[number, number] | null>(null);
+  const [otherLocation, setOtherLocation] = useState<[number, number] | null>(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY_OTHER_LOC);
+      return cached ? JSON.parse(cached) : null;
+    } catch { return null; }
+  });
   const channelRef = React.useRef<any>(null);
   const lastThrottleRef = React.useRef<number>(0);
   const lastPendingRef = React.useRef<[number, number] | null>(null);
 
-  // Poll database for other user's last location and activity
   useEffect(() => {
     if (!userId) return;
 
@@ -43,8 +48,6 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
         const isActive = (now - lastUpdate) < 10 * 60 * 1000;
         setIsOtherActiveRecent(isActive);
         
-        // Update location if it's more recent than what we have from presence
-        // or if we don't have presence currently
         if (data.lat !== undefined && data.lng !== undefined) {
           setOtherLocation([data.lat, data.lng]);
         }
@@ -54,7 +57,7 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
     };
 
     fetchOtherStatus();
-    const interval = setInterval(fetchOtherStatus, 120000); // Poll every 2 mins (Presence handles realtime)
+    const interval = setInterval(fetchOtherStatus, 300000); // Poll every 5 mins
     return () => clearInterval(interval);
   }, [userId]);
 
@@ -93,8 +96,9 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
                 
                 // Simple local throttle for UI updates
                 const now = Date.now();
-                if (!lastThrottleRef.current || now - lastThrottleRef.current > 500) {
+                if (!lastThrottleRef.current || now - lastThrottleRef.current > 300) {
                   setOtherLocation(newPos);
+                  localStorage.setItem(CACHE_KEY_OTHER_LOC, JSON.stringify(newPos));
                   lastThrottleRef.current = now;
                   lastPendingRef.current = null;
                 } else {
@@ -116,7 +120,6 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
           setOtherLocation(null);
         }
       })
-      // Real-time Broadcast for Notifications (Pings)
       .on('broadcast', { event: 'ping' }, ({ payload }) => {
         showNotification(`Thông báo: ${payload.message}`, false);
       })
@@ -154,15 +157,19 @@ export const PresenceProvider: React.FC<{ children: React.ReactNode, userId: str
     }
   };
 
+  const lastTrackRef = React.useRef<number>(0);
   const updateLocation = (lat: number, lng: number, address?: string) => {
-    if (channelRef.current) {
+    const now = Date.now();
+    // Throttle track calls
+    if (channelRef.current && now - lastTrackRef.current > 800) {
+      lastTrackRef.current = now;
       const data: any = { 
         lat, 
         lng, 
         online_at: new Date().toISOString() 
       };
       if (address) data.address = address;
-      channelRef.current.track(data);
+      channelRef.current.track(data).catch(() => {});
     }
   };
 

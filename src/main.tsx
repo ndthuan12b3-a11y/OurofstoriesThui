@@ -19,6 +19,17 @@ if (typeof window !== 'undefined') {
     ) {
       event.preventDefault();
       console.warn('[System] Suppressing benign system or auth error:', msg);
+      
+      // If it's a fatal auth error, we should probably force a logout and reload to get a clean state
+      if (msg.includes('Invalid Refresh Token') || msg.includes('refresh_token_not_found')) {
+        console.error('[Auth] Fatal session error detected. Force signing out...');
+        import('./lib/supabase').then(({ supabase }) => {
+          supabase.auth.signOut().then(() => {
+            localStorage.removeItem('supabase.auth.token');
+            window.location.reload();
+          });
+        });
+      }
     }
   });
   

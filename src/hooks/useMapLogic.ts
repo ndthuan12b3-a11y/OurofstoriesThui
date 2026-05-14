@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { usePresence } from '../lib/PresenceContext';
 import { cleanAddress } from '../lib/utils';
 import { AppConfig } from '../types';
 
-export interface TrackedUser {
+interface TrackedUser {
   user_id: string;
   lat: number;
   lng: number;
@@ -15,104 +16,161 @@ export interface TrackedUser {
   isOnline: boolean;
 }
 
+const CACHE_KEY_TRACKED_USERS = 'last_known_tracked_users_map';
+
 export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
   const { onlineUsers } = usePresence();
-  const [trackedUsers, setTrackedUsers] = useState<Record<string, TrackedUser>>({});
+  const queryClient = useQueryClient();
+  
+  // 1. Initial State from LocalStorage for immediate display
+  const [trackedUsers, setTrackedUsers] = useState<Record<string, TrackedUser>>(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY_TRACKED_USERS);
+      return cached ? JSON.parse(cached) : {};
+    } catch { return {}; }
+  });
 
-  // Real-time Location Sharing
+  // 2. Fetch Profiles using React Query
+  const { data: profilesMap = {} } = useQuery({
+    queryKey: ['profiles-map'],
+    queryFn: async () => {
+      const { data } = await supabase.from('profiles').select('user_id, avatar_url');
+      const map: Record<string, any> = {};
+      data?.forEach(p => { map[p.user_id] = p; });
+      return map;
+    },
+    enabled: !!userId,
+  });
+
+  // 3. Fetch Config Creator using React Query
+  const { data: creatorId } = useQuery({
+    queryKey: ['config-creator'],
+    queryFn: async () => {
+      const { data } = await supabase.from('config').select('user_id').limit(1).maybeSingle();
+      return data?.user_id || null;
+    },
+    enabled: !!userId,
+  });
+
+  // 4. Baseline locations using React Query (Refreshes periodically)
+  const { data: initialLocations } = useQuery({
+    queryKey: ['locations-baseline'],
+    queryFn: async () => {
+      const { data: locations } = await supabase
+        .from('locations')
+        .select('user_id, lat, lng, updated_at, address');
+      return locations || [];
+    },
+    enabled: !!userId && Object.keys(profilesMap).length > 0,
+    staleTime: 60000,
+  });
+
+  // Update tracked users when baseline locations or online status change
   useEffect(() => {
-    if (!userId || !supabase) return;
+    if (!initialLocations) return;
 
-    let profilesMap: Record<string, any> = {};
-    let creatorId: string | null = null;
-
-    const fetchAllData = async () => {
-      try {
-        // Fetch Admin/Config creator ID to map male/female names deterministically
-        if (!creatorId) {
-          const { data: configData } = await supabase.from('config').select('user_id').limit(1).maybeSingle();
-          if (configData?.user_id) creatorId = configData.user_id;
-        }
-
-        // 1. Fetch Profiles (Only if not already cached)
-        if (Object.keys(profilesMap).length === 0) {
-          const { data: profiles } = await supabase
-            .from('profiles')
-            .select('user_id, avatar_url');
-          
-          if (profiles) {
-            profiles.forEach(p => {
-              profilesMap[p.user_id] = p;
-            });
+    setTrackedUsers(prev => {
+      const newTrackedUsers: Record<string, TrackedUser> = { ...prev };
+      
+      initialLocations.forEach(loc => {
+        const uid = loc.user_id;
+        const profile = profilesMap[uid];
+        let name = config.name_male;
+        
+        if (creatorId) {
+          name = uid === creatorId ? config.name_female : config.name_male;
+        } else {
+          const sortedIds = Object.keys(profilesMap).sort();
+          if (sortedIds.includes(uid)) {
+            name = sortedIds[0] === uid ? config.name_female : config.name_male;
           }
         }
 
-        // 2. Fetch Locations (Only necessary columns)
-        const { data: locations } = await supabase
-          .from('locations')
-          .select('user_id, lat, lng, updated_at, address');
-        
-        if (locations) {
-          const newTrackedUsers: Record<string, TrackedUser> = {};
-          const validLocations = locations.filter(loc => {
-            const lat = Number(loc.lat);
-            const lng = Number(loc.lng);
-            return !isNaN(lat) && !isNaN(lng) && isFinite(lat) && isFinite(lng);
-          });
+        // Only update from DB if we don't have a more recent real-time update in state
+        const existing = prev[uid];
+        const dbTime = new Date(loc.updated_at).getTime();
+        const existingTime = existing ? new Date(existing.updated_at).getTime() : 0;
 
-          validLocations.forEach(loc => {
-            const profile = profilesMap[loc.user_id];
-            let dateStr = loc.updated_at;
-            if (dateStr && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
-              dateStr += 'Z';
-            }
-            const isOnline = (Date.now() - new Date(dateStr).getTime()) < 300000; // 5 mins
-            
-            let name = config.name_male;
-            if (creatorId) {
-              name = loc.user_id === creatorId ? config.name_female : config.name_male;
-            } else {
-              const sortedIds = Object.keys(profilesMap).sort();
-              if (sortedIds[0] === loc.user_id) name = config.name_female;
-              else name = config.name_male;
-            }
-
-            newTrackedUsers[loc.user_id] = {
-              user_id: loc.user_id,
-              lat: Number(loc.lat),
-              lng: Number(loc.lng),
-              updated_at: loc.updated_at,
-              avatar_url: profile?.avatar_url || null,
-              name: name || 'Người dùng',
-              address: loc.address || '',
-              isOnline: isOnline
-            };
-          });
-          setTrackedUsers(newTrackedUsers);
+        if (!existing || dbTime >= existingTime) {
+          newTrackedUsers[uid] = {
+            user_id: uid,
+            lat: Number(loc.lat),
+            lng: Number(loc.lng),
+            updated_at: loc.updated_at || new Date().toISOString(),
+            avatar_url: profile?.avatar_url || null,
+            name: name || 'Người dùng',
+            address: cleanAddress(loc.address || ''),
+            isOnline: onlineUsers.includes(uid)
+          };
+        } else {
+          // If we have more recent real-time data, just update the online status
+          newTrackedUsers[uid] = {
+            ...existing,
+            isOnline: onlineUsers.includes(uid)
+          };
         }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn("Fetch initial data failed:", msg);
-      }
-    };
+      });
 
-    fetchAllData();
+      // Save to localStorage
+      localStorage.setItem(CACHE_KEY_TRACKED_USERS, JSON.stringify(newTrackedUsers));
+      return newTrackedUsers;
+    });
+  }, [initialLocations, profilesMap, onlineUsers, creatorId, config.name_male, config.name_female]);
 
-    // Setup Realtime Listener for locations (DB Changes)
-    const dbChannel = supabase
-      .channel('location-updates-all')
+  // Real-time Presence Listener
+  useEffect(() => {
+    if (!userId || !supabase) return;
+
+    // 1. Lắng nghe thay đổi trực tiếp từ Bảng Locations (Độ tin cậy cao)
+    const locationsChannel = supabase
+      .channel('db-locations')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'locations' },
-        async (payload: any) => {
-          const loc = payload.new;
-          if (!loc) return;
-          processUpdate(loc);
-        }
+        { event: 'INSERT', schema: 'public', table: 'locations' },
+        (payload) => handleLocationUpdate(payload.new)
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'locations' },
+        (payload) => handleLocationUpdate(payload.new)
       )
       .subscribe();
 
-    // Presence Listener (much faster than DB updates)
+    const handleLocationUpdate = (loc: any) => {
+      const uid = loc.user_id;
+      const profile = profilesMap[uid];
+      let name = config.name_male;
+      if (creatorId) {
+        name = uid === creatorId ? config.name_female : config.name_male;
+      }
+
+      setTrackedUsers(prev => {
+        const existing = prev[uid];
+        const dbTime = new Date(loc.updated_at).getTime();
+        const existingTime = existing ? new Date(existing.updated_at).getTime() : 0;
+
+        // Chỉ cập nhật nếu dữ liệu mới hơn (tránh race condition với Presence)
+        if (!existing || dbTime >= existingTime - 1000) {
+          const updated = {
+            user_id: uid,
+            lat: Number(loc.lat),
+            lng: Number(loc.lng),
+            updated_at: loc.updated_at || new Date().toISOString(),
+            avatar_url: profile?.avatar_url || null,
+            name: name || 'Người dùng',
+            address: cleanAddress(loc.address || ''),
+            isOnline: onlineUsers.includes(uid)
+          };
+          
+          const merged = { ...prev, [uid]: updated };
+          localStorage.setItem(CACHE_KEY_TRACKED_USERS, JSON.stringify(merged));
+          return merged;
+        }
+        return prev;
+      });
+    };
+
+    // 2. Lắng nghe Presence (Độ trễ thấp cho di chuyển mượt)
     const presenceChannel = supabase.channel('online-users', {
       config: { presence: { key: userId } }
     });
@@ -120,130 +178,54 @@ export const useMapLogic = (userId: string | undefined, config: AppConfig) => {
     presenceChannel
       .on('presence', { event: 'sync' }, () => {
         const state = presenceChannel.presenceState();
-        Object.entries(state).forEach(([uid, presences]) => {
-          const presenceList = presences as any[];
-          const latest = presenceList[presenceList.length - 1];
-          if (latest && latest.lat && latest.lng) {
-            processUpdate({
-              user_id: uid,
-              lat: latest.lat,
-              lng: latest.lng,
-              updated_at: latest.online_at || new Date().toISOString(),
-              address: latest.address || null 
-            });
-          }
+        
+        setTrackedUsers(prev => {
+          const merged = { ...prev };
+          // Mark as offline if not in current presence state
+          Object.keys(merged).forEach(uid => { merged[uid].isOnline = onlineUsers.includes(uid); });
+
+          Object.entries(state).forEach(([uid, presences]) => {
+            const presenceList = presences as any[];
+            const latest = presenceList[presenceList.length - 1];
+            
+            if (latest && latest.lat && latest.lng) {
+              const profile = profilesMap[uid];
+              let name = config.name_male;
+              if (creatorId) {
+                name = uid === creatorId ? config.name_female : config.name_male;
+              }
+
+              merged[uid] = {
+                user_id: uid,
+                lat: Number(latest.lat),
+                lng: Number(latest.lng),
+                updated_at: latest.online_at || new Date().toISOString(),
+                avatar_url: profile?.avatar_url || null,
+                name: name || 'Người dùng',
+                address: cleanAddress(latest.address || ''),
+                isOnline: true
+              };
+            }
+          });
+          
+          localStorage.setItem(CACHE_KEY_TRACKED_USERS, JSON.stringify(merged));
+          return merged;
         });
       })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          // Track our own presence too so others see us fast
-          const lastLoc = localStorage.getItem(`last_loc_${userId}`);
-          if (lastLoc) {
-            const [lat, lng] = JSON.parse(lastLoc);
-            await presenceChannel.track({ lat, lng, online_at: new Date().toISOString() });
-          }
-        }
-      });
-
-    // Helper to process any update (DB or Presence)
-    const processUpdate = async (loc: any) => {
-      const uid = loc.user_id;
-      const coords: [number, number] = [Number(loc.lat), Number(loc.lng)];
-      
-      const isValid = Array.isArray(coords) && coords.length === 2 && 
-                      !isNaN(coords[0]) && isFinite(coords[0]) &&
-                      !isNaN(coords[1]) && isFinite(coords[1]);
-      if (!isValid) return;
-
-      // If tracking a new user, fetch their profile first
-      if (!profilesMap[uid]) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('user_id, avatar_url')
-          .eq('user_id', uid)
-          .maybeSingle();
-        if (profile) profilesMap[uid] = profile;
-      }
-
-      setTrackedUsers(prev => {
-        const profile = profilesMap[uid];
-        const prevUser = prev[uid];
-        const address = loc.address || prevUser?.address || '';
-
-        let name = config.name_male;
-        if (creatorId) {
-          name = uid === creatorId ? config.name_female : config.name_male;
-        } else {
-          const allIds = Object.keys(prev);
-          if (!allIds.includes(uid)) allIds.push(uid);
-          allIds.sort();
-          name = allIds[0] === uid ? config.name_female : config.name_male;
-        }
-
-        return {
-          ...prev,
-          [uid]: {
-            user_id: uid,
-            lat: coords[0],
-            lng: coords[1],
-            updated_at: loc.updated_at || new Date().toISOString(),
-            avatar_url: profile?.avatar_url || prev[uid]?.avatar_url || null,
-            name: name || 'Người dùng',
-            address: cleanAddress(address),
-            isOnline: true
-          }
-        };
-      });
-    };
-
-    const interval = setInterval(fetchAllData, 20000); // 20s refresh fallback (Realtime handles precision)
+      .subscribe();
 
     return () => {
-      supabase.removeChannel(dbChannel);
+      supabase.removeChannel(locationsChannel);
       supabase.removeChannel(presenceChannel);
-      clearInterval(interval);
     };
-  }, [userId, config.name_male, config.name_female]);
+  }, [userId, profilesMap, creatorId, config, onlineUsers]);
 
   const sortedUsers = useMemo(() => {
     return Object.values(trackedUsers).sort((a, b) => {
-      if (a.user_id === userId) return -1;
-      if (b.user_id === userId) return 1;
-      return 0;
+      if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
     });
-  }, [trackedUsers, userId]);
+  }, [trackedUsers]);
 
-  const userLocation = trackedUsers[userId!] ? [trackedUsers[userId!].lat, trackedUsers[userId!].lng] as [number, number] : null;
-  const otherUsers = sortedUsers.filter(u => u.user_id !== userId);
-  const mainOther = otherUsers[0] || null;
-  const otherLocation = mainOther ? [mainOther.lat, mainOther.lng] as [number, number] : null;
-  const isOtherOnline = mainOther ? onlineUsers.includes(mainOther.user_id) : false;
-
-  const distance = useMemo(() => {
-    if (!userLocation || !otherLocation) return null;
-    const [lat1, lon1] = userLocation;
-    const [lat2, lon2] = otherLocation;
-    const R = 6371; // km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const d = R * c;
-    return d < 1 ? `${(d * 1000).toFixed(0)}m` : `${d.toFixed(2)}km`;
-  }, [userLocation, otherLocation]);
-
-  return {
-    trackedUsers,
-    sortedUsers,
-    userLocation,
-    otherUsers,
-    mainOther,
-    otherLocation,
-    isOtherOnline,
-    distance,
-    onlineUsers
-  };
+  return { trackedUsers, sortedUsers };
 };
